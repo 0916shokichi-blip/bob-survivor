@@ -399,7 +399,6 @@ function newState() {
       toi: { cd: 0 },
       kotoba: { cd: 0 },
       naisei: { angle: 0 },
-      socratic: { cd: 0 },
     },
     level: 1,
     xp: 0,
@@ -618,21 +617,30 @@ function fireKotoba(lv) {
   });
 }
 
+function naiseiOrbits() {
+  const lv = weaponLv('naisei');
+  if (!lv) return [];
+  const count = 1 + Math.floor(lv / 3);
+  const dist = 44 * rangeMul();
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const a = state.weaponState.naisei.angle + (Math.PI * 2 * i) / count;
+    out.push({ x: state.player.x + Math.cos(a) * dist, y: state.player.y + Math.sin(a) * dist });
+  }
+  return out;
+}
+
 function updateNaisei(dt) {
   const lv = weaponLv('naisei');
   if (!lv) return;
   state.weaponState.naisei.angle += dt * 2.4;
-  const count = 1 + Math.floor(lv / 3);
-  const dist = 44 * rangeMul();
-  for (let i = 0; i < count; i++) {
-    const a = state.weaponState.naisei.angle + (Math.PI * 2 * i) / count;
-    const x = state.player.x + Math.cos(a) * dist;
-    const y = state.player.y + Math.sin(a) * dist;
+  const dmg = 1 + Math.floor(lv / 3);
+  for (const orb of naiseiOrbits()) {
     for (const e of state.enemies) {
-      const dx = e.x - x, dy = e.y - y;
+      const dx = e.x - orb.x, dy = e.y - orb.y;
       if (dx * dx + dy * dy < (e.r + 9) * (e.r + 9)) {
         if (!e.naiseiCd || e.naiseiCd <= 0) {
-          e.hp -= 1 + Math.floor(lv / 3);
+          e.hp -= dmg;
           e.naiseiCd = 0.35;
         }
       }
@@ -1094,19 +1102,11 @@ function draw() {
   for (const e of state.enemies) drawBonnou(e);
 
   // naisei orbs
-  const naiseiLv = weaponLv('naisei');
-  if (naiseiLv) {
-    const count = 1 + Math.floor(naiseiLv / 3);
-    const dist = 44 * rangeMul();
-    for (let i = 0; i < count; i++) {
-      const a = state.weaponState.naisei.angle + (Math.PI * 2 * i) / count;
-      const x = state.player.x + Math.cos(a) * dist;
-      const y = state.player.y + Math.sin(a) * dist;
-      ctx.fillStyle = 'rgba(184, 164, 212, 0.85)';
-      ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = 'rgba(184, 164, 212, 0.35)';
-      ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI * 2); ctx.stroke();
-    }
+  for (const orb of naiseiOrbits()) {
+    ctx.fillStyle = 'rgba(184, 164, 212, 0.85)';
+    ctx.beginPath(); ctx.arc(orb.x, orb.y, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(184, 164, 212, 0.35)';
+    ctx.beginPath(); ctx.arc(orb.x, orb.y, 9, 0, Math.PI * 2); ctx.stroke();
   }
 
   // player
@@ -1144,16 +1144,9 @@ function startGame() {
   initAudio();
   state = newState();
   state.phase = 'play';
-  // 初手は武器なし。最初のレベルアップでビルドが始まる。
-  // ただし退屈防止として、最初の選択肢を出す。
   state.pendingLevels = 1;
   presentLevelUp();
   refreshHud();
-  closeOverlayIfNeeded();
-}
-
-function closeOverlayIfNeeded() {
-  // presentLevelUp already opens overlay; nothing to do.
 }
 
 function gameOver() {
