@@ -1,0 +1,1261 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ぼぶサバイバー</title>
+<style>
+  :root {
+    --bg: #0f1114;
+    --bg-deep: #080810;
+    --ink: #ece6d6;
+    --dim: #8a8576;
+    --hood: #171717;
+    --hood-deep: #0a0a0a;
+    --eye: #cfc7b4;
+    --eye-bright: #f4f1ea;
+    --accent: #b8a4d4;       /* 内省の紫 */
+    --accent-soft: #6f6691;
+    --gold: #f4d77e;          /* 進化武器のフラッシュ */
+    --danger: #c46a6a;
+    --bonnou: #1a0f14;
+    --bonnou-eye: #c44a4a;
+    --xp: #6e82a8;            /* 月光の青 */
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg-deep);
+    color: var(--ink);
+    font-family: -apple-system, 'Hiragino Sans', 'Yu Gothic', sans-serif;
+    letter-spacing: 0.06em;
+    overflow: hidden;
+    height: 100%;
+  }
+
+  #app {
+    position: fixed; inset: 0;
+    display: grid;
+    place-items: center;
+    background:
+      radial-gradient(ellipse at center, #14161c 0%, var(--bg-deep) 70%);
+  }
+
+  #stage {
+    position: relative;
+    width: min(960px, 100vw);
+    height: min(600px, 100vh);
+  }
+
+  canvas {
+    display: block;
+    width: 100%; height: 100%;
+    background: var(--bg);
+    image-rendering: pixelated;
+  }
+
+  /* HUD */
+  .hud {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+  }
+  .hud-top {
+    position: absolute;
+    top: 12px; left: 16px; right: 16px;
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 13px;
+  }
+  .hud-top .left, .hud-top .right { display: flex; gap: 18px; align-items: center; }
+  .hp {
+    display: inline-flex; gap: 4px;
+  }
+  .hp .heart {
+    width: 14px; height: 14px;
+    background: var(--danger);
+    clip-path: polygon(50% 15%, 90% 35%, 90% 60%, 50% 95%, 10% 60%, 10% 35%);
+    opacity: 1;
+  }
+  .hp .heart.empty { opacity: 0.18; }
+  .timer { font-weight: 200; font-size: 18px; letter-spacing: 0.18em; }
+  .level {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  /* XP bar */
+  .xp-bar {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 4px;
+    background: rgba(255,255,255,0.05);
+  }
+  .xp-bar .fill {
+    height: 100%;
+    width: 0%;
+    background: var(--xp);
+    transition: width 120ms linear;
+  }
+
+  /* Build sidebar */
+  .build {
+    position: absolute;
+    top: 44px; left: 16px;
+    display: flex; flex-direction: column; gap: 6px;
+    font-size: 11px;
+    color: var(--dim);
+    max-width: 220px;
+  }
+  .build .item {
+    display: flex; gap: 8px; align-items: center;
+  }
+  .build .name { color: var(--ink); }
+  .build .lv { color: var(--accent); }
+  .build .item.evolved .name { color: var(--gold); }
+  .build .item.evolved .lv { color: var(--gold); }
+
+  /* Modal */
+  .overlay {
+    position: absolute; inset: 0;
+    display: none;
+    align-items: center; justify-content: center;
+    background: rgba(8, 8, 16, 0.88);
+    backdrop-filter: blur(2px);
+    pointer-events: auto;
+    z-index: 10;
+  }
+  .overlay.show { display: flex; }
+  .modal {
+    width: min(560px, 92%);
+    padding: 28px 32px;
+    border: 1px solid #20232a;
+    background: var(--bg);
+  }
+  .modal h2 {
+    margin: 0 0 4px;
+    font-weight: 200;
+    font-size: 14px;
+    color: var(--dim);
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+  }
+  .modal .lead {
+    margin: 0 0 20px;
+    font-weight: 200;
+    font-size: 22px;
+    color: var(--ink);
+    letter-spacing: 0.16em;
+  }
+  .choices {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .choice {
+    display: flex; gap: 14px; align-items: center;
+    padding: 14px 16px;
+    border: 1px solid #20232a;
+    background: #11141a;
+    cursor: pointer;
+    transition: border-color 120ms, background 120ms, transform 80ms;
+    text-align: left;
+    color: var(--ink);
+    font-family: inherit;
+  }
+  .choice:hover, .choice:focus { border-color: var(--accent-soft); background: #14161e; outline: none; }
+  .choice:active { transform: translateY(1px); }
+  .choice .glyph {
+    width: 36px; height: 36px;
+    flex-shrink: 0;
+    display: grid; place-items: center;
+    background: #0a0c10;
+    border: 1px solid #20232a;
+    color: var(--accent);
+    font-size: 18px;
+  }
+  .choice.evo .glyph { color: var(--gold); border-color: var(--gold); }
+  .choice .meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .choice .title { font-size: 14px; }
+  .choice .title .tag { color: var(--accent); font-size: 11px; margin-left: 8px; }
+  .choice.evo .title .tag { color: var(--gold); }
+  .choice .desc { font-size: 11px; color: var(--dim); letter-spacing: 0.12em; }
+
+  /* Result screen */
+  .result h2 { color: var(--accent); }
+  .result.win h2 { color: var(--gold); }
+  .result .stats {
+    display: grid; grid-template-columns: auto 1fr; gap: 6px 18px;
+    font-size: 12px; color: var(--dim);
+    margin: 16px 0 22px;
+  }
+  .result .stats .v { color: var(--ink); }
+  .result button.again {
+    padding: 10px 22px;
+    background: transparent;
+    color: var(--ink);
+    border: 1px solid var(--accent-soft);
+    font-family: inherit;
+    letter-spacing: 0.18em;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .result button.again:hover { border-color: var(--accent); }
+
+  /* Title screen */
+  .title-screen {
+    text-align: center;
+  }
+  .title-screen .title {
+    font-weight: 200;
+    font-size: 36px;
+    letter-spacing: 0.32em;
+    margin: 0 0 4px;
+  }
+  .title-screen .subtitle {
+    font-size: 11px;
+    color: var(--dim);
+    letter-spacing: 0.4em;
+    margin: 0 0 28px;
+    text-transform: uppercase;
+  }
+  .title-screen .keys {
+    font-size: 11px;
+    color: var(--dim);
+    letter-spacing: 0.16em;
+    margin: 22px 0 24px;
+    line-height: 1.8;
+  }
+  .title-screen .keys kbd {
+    display: inline-block;
+    padding: 1px 6px;
+    border: 1px solid #20232a;
+    border-radius: 2px;
+    color: var(--ink);
+    background: #11141a;
+    font-family: inherit;
+    font-size: 10px;
+  }
+
+  /* Floating evolved banner */
+  .banner {
+    position: absolute;
+    top: 32%; left: 50%;
+    transform: translate(-50%, -50%);
+    color: var(--gold);
+    font-size: 22px;
+    letter-spacing: 0.32em;
+    font-weight: 200;
+    pointer-events: none;
+    opacity: 0;
+    text-shadow: 0 0 18px rgba(244, 215, 126, 0.35);
+  }
+  .banner.show {
+    animation: banner 1.6s ease-out forwards;
+  }
+  @keyframes banner {
+    0%   { opacity: 0; transform: translate(-50%, -40%); }
+    20%  { opacity: 1; }
+    80%  { opacity: 1; }
+    100% { opacity: 0; transform: translate(-50%, -50%); }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="game" width="960" height="600"></canvas>
+
+    <div class="hud">
+      <div class="hud-top">
+        <div class="left">
+          <div class="hp" id="hp"></div>
+          <div class="level">Lv <span id="lv">1</span></div>
+        </div>
+        <div class="right">
+          <div class="timer" id="timer">01:00</div>
+        </div>
+      </div>
+      <div class="build" id="build"></div>
+      <div class="xp-bar"><div class="fill" id="xpfill"></div></div>
+    </div>
+
+    <div class="banner" id="banner"></div>
+
+    <div class="overlay" id="overlay">
+      <div class="modal" id="modal"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+// ============================================================
+// Data — 武器・パッシブ・進化はここで完結（追加はこのテーブルだけ）
+// ============================================================
+
+const WEAPONS = {
+  toi: {
+    id: 'toi',
+    name: '問い',
+    glyph: '?',
+    desc: '投げかけた問いが、煩悩を貫く',
+    maxLv: 8,
+    levelDesc: lv => lv === 1 ? '取得：問いを 1 本発射' :
+                     lv === 8 ? '頻度↑ ダメージ↑ 進化準備完了' :
+                     `本数 +${lv === 4 ? 1 : 0}　ダメージ +1`,
+  },
+  kotoba: {
+    id: 'kotoba',
+    name: '言葉',
+    glyph: '◯',
+    desc: '周囲に響く言葉が、近づく煩悩を払う',
+    maxLv: 8,
+    levelDesc: lv => lv === 1 ? '取得：周囲に円形範囲ダメージ' : '範囲 +　ダメージ +',
+  },
+  naisei: {
+    id: 'naisei',
+    name: '内省',
+    glyph: '◐',
+    desc: '己の周りを巡る内省が、触れた煩悩を消す',
+    maxLv: 8,
+    levelDesc: lv => lv === 1 ? '取得：周囲を 1 個の盾が公転' : `数 +${lv === 4 || lv === 7 ? 1 : 0}`,
+  },
+};
+
+const PASSIVES = {
+  chinmoku: {
+    id: 'chinmoku', name: '沈黙', glyph: '〜',
+    desc: 'すべての武器のクールダウンが短くなる',
+    maxLv: 5,
+    levelDesc: lv => `攻撃間隔 -${lv * 8}%`,
+  },
+  meiseki: {
+    id: 'meiseki', name: '明晰さ', glyph: '✦',
+    desc: '射程と弾速が伸びる',
+    maxLv: 5,
+    levelDesc: lv => `範囲・速度 +${lv * 12}%`,
+  },
+  nintai: {
+    id: 'nintai', name: '忍耐', glyph: '＋',
+    desc: '体力の上限が増える',
+    maxLv: 5,
+    levelDesc: lv => `最大 HP +${lv}`,
+  },
+};
+
+const EVOLUTIONS = [
+  {
+    id: 'socratic',
+    name: 'ソクラテス的問答',
+    desc: '問いが応答を呼び、応答がまた問いを呼ぶ',
+    requires: { weapon: 'toi', weaponLv: 8, passive: 'chinmoku', passiveLv: 3 },
+    glyph: '?!',
+  },
+];
+
+// ============================================================
+// State
+// ============================================================
+
+const W = 960, H = 600;
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+const keys = new Set();
+window.addEventListener('keydown', e => {
+  keys.add(e.key.toLowerCase());
+  if (['arrowup','arrowdown','arrowleft','arrowright',' '].includes(e.key.toLowerCase())) e.preventDefault();
+});
+window.addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
+
+let state; // game state object
+
+function newState() {
+  return {
+    phase: 'title',  // 'title' | 'play' | 'levelup' | 'win' | 'lose'
+    elapsed: 0,
+    lastBlink: 0,
+    blinkUntil: 0,
+    nextBlinkAt: 3500 + Math.random() * 3500,
+    player: {
+      x: W / 2, y: H / 2,
+      r: 14,
+      hp: 3, maxHp: 3,
+      iframeUntil: 0,
+      moveSpeed: 170,
+      facing: { x: 1, y: 0 },
+    },
+    enemies: [],
+    projectiles: [],
+    orbs: [],
+    weapons: {},   // id -> level (0 = unowned)
+    passives: {},  // id -> level
+    evolved: {},   // evoId -> true
+    weaponState: {
+      toi: { cd: 0 },
+      kotoba: { cd: 0 },
+      naisei: { angle: 0 },
+      socratic: { cd: 0 },
+    },
+    level: 1,
+    xp: 0,
+    xpNext: 5,
+    spawnTimer: 0,
+    spawnInterval: 1.1,
+    kills: 0,
+    pendingLevels: 0,
+  };
+}
+
+// ============================================================
+// Drawing — ぼぶ
+// ============================================================
+
+function drawBob(x, y, scale, blinking, focused) {
+  // SVG path-relative -> canvas. Original viewBox 0..64.
+  // Hood path: rounded shoulder dome.
+  const s = scale;
+  const left = x - 16 * s, top = y - 16 * s;
+  // hood silhouette
+  ctx.fillStyle = '#171717';
+  ctx.beginPath();
+  ctx.moveTo(left + 32 * s, top + 6 * s);
+  ctx.bezierCurveTo(left + 18 * s, top + 6 * s, left + 12 * s, top + 18 * s, left + 12 * s, top + 32 * s);
+  ctx.lineTo(left + 12 * s, top + 58 * s);
+  ctx.lineTo(left + 52 * s, top + 58 * s);
+  ctx.lineTo(left + 52 * s, top + 32 * s);
+  ctx.bezierCurveTo(left + 52 * s, top + 18 * s, left + 46 * s, top + 6 * s, left + 32 * s, top + 6 * s);
+  ctx.closePath();
+  ctx.fill();
+  // inner shadow (face area)
+  ctx.fillStyle = '#0a0a0a';
+  ctx.beginPath();
+  ctx.ellipse(x, y - 2 * s, 12 * s, 15 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // eyes
+  ctx.fillStyle = focused ? '#f4f1ea' : '#cfc7b4';
+  const ey = y - 2 * s;
+  const eyeRy = blinking ? 0.18 : 1.5;
+  const eyeRx = 1.5;
+  ctx.beginPath();
+  ctx.ellipse(x - 4.5 * s, ey, eyeRx * s, eyeRy * s, 0, 0, Math.PI * 2);
+  ctx.ellipse(x + 4.5 * s, ey, eyeRx * s, eyeRy * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawBonnou(e) {
+  const t = e.wobble;
+  const w = 14 + Math.sin(t) * 1.5;
+  ctx.fillStyle = '#1a0f14';
+  ctx.beginPath();
+  ctx.ellipse(e.x, e.y, w, 16, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // hood overhang
+  ctx.fillStyle = '#0a050a';
+  ctx.beginPath();
+  ctx.ellipse(e.x, e.y - 5, w - 1, 10, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // red eyes
+  ctx.fillStyle = '#c44a4a';
+  ctx.beginPath();
+  ctx.arc(e.x - 3.5, e.y - 2, 1.1, 0, Math.PI * 2);
+  ctx.arc(e.x + 3.5, e.y - 2, 1.1, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// ============================================================
+// Stats helpers
+// ============================================================
+
+function passiveLv(id) { return state.passives[id] || 0; }
+function weaponLv(id) { return state.weapons[id] || 0; }
+
+function cooldownMul() {
+  return 1 - 0.08 * passiveLv('chinmoku');
+}
+function rangeMul() {
+  return 1 + 0.12 * passiveLv('meiseki');
+}
+
+// ============================================================
+// Input
+// ============================================================
+
+function readMove() {
+  let dx = 0, dy = 0;
+  if (keys.has('w') || keys.has('arrowup')) dy -= 1;
+  if (keys.has('s') || keys.has('arrowdown')) dy += 1;
+  if (keys.has('a') || keys.has('arrowleft')) dx -= 1;
+  if (keys.has('d') || keys.has('arrowright')) dx += 1;
+  if (dx || dy) {
+    const m = Math.hypot(dx, dy);
+    return { x: dx / m, y: dy / m };
+  }
+  return { x: 0, y: 0 };
+}
+
+// ============================================================
+// Spawn / Movement
+// ============================================================
+
+function spawnEnemy() {
+  // spawn at random edge
+  const side = Math.floor(Math.random() * 4);
+  let x, y;
+  if (side === 0) { x = Math.random() * W; y = -20; }
+  else if (side === 1) { x = W + 20; y = Math.random() * H; }
+  else if (side === 2) { x = Math.random() * W; y = H + 20; }
+  else { x = -20; y = Math.random() * H; }
+  const tier = Math.min(3, Math.floor(state.elapsed / 15));
+  state.enemies.push({
+    x, y, r: 11,
+    hp: 2 + tier,
+    speed: 50 + tier * 8 + Math.random() * 20,
+    wobble: Math.random() * Math.PI * 2,
+    xp: 1,
+  });
+}
+
+function updateEnemies(dt) {
+  state.spawnTimer += dt;
+  // density ramps over time
+  const interval = Math.max(0.18, state.spawnInterval - state.elapsed * 0.012);
+  while (state.spawnTimer >= interval) {
+    state.spawnTimer -= interval;
+    const burst = 1 + Math.floor(state.elapsed / 25);
+    for (let i = 0; i < burst; i++) spawnEnemy();
+  }
+
+  for (const e of state.enemies) {
+    const dx = state.player.x - e.x;
+    const dy = state.player.y - e.y;
+    const d = Math.hypot(dx, dy) || 1;
+    e.x += (dx / d) * e.speed * dt;
+    e.y += (dy / d) * e.speed * dt;
+    e.wobble += dt * 6;
+  }
+
+  // separation (very light, prevents pile up)
+  for (let i = 0; i < state.enemies.length; i++) {
+    const a = state.enemies[i];
+    for (let j = i + 1; j < state.enemies.length; j++) {
+      const b = state.enemies[j];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const d2 = dx * dx + dy * dy;
+      const minD = a.r + b.r;
+      if (d2 < minD * minD && d2 > 0.01) {
+        const d = Math.sqrt(d2);
+        const push = (minD - d) * 0.5;
+        const ux = dx / d, uy = dy / d;
+        a.x -= ux * push; a.y -= uy * push;
+        b.x += ux * push; b.y += uy * push;
+      }
+    }
+  }
+}
+
+// ============================================================
+// Weapons
+// ============================================================
+
+function nearestEnemy(x, y, max = Infinity) {
+  let best = null, bestD = max * max;
+  for (const e of state.enemies) {
+    const dx = e.x - x, dy = e.y - y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < bestD) { bestD = d2; best = e; }
+  }
+  return best;
+}
+
+function fireToi(lv) {
+  const baseCount = 1 + Math.floor((lv - 1) / 3); // 1,1,1,2,2,2,3,3
+  const count = state.evolved.socratic ? baseCount + 2 : baseCount;
+  const dmg = 1 + Math.floor((lv - 1) / 2);
+  const spread = (count - 1) * 0.16;
+  const target = nearestEnemy(state.player.x, state.player.y, 600);
+  let dirX = state.player.facing.x, dirY = state.player.facing.y;
+  if (target) {
+    const dx = target.x - state.player.x, dy = target.y - state.player.y;
+    const d = Math.hypot(dx, dy) || 1;
+    dirX = dx / d; dirY = dy / d;
+  }
+  const speed = 380 * rangeMul();
+  for (let i = 0; i < count; i++) {
+    const angOff = -spread / 2 + (count > 1 ? (i / (count - 1)) * spread : 0);
+    const cos = Math.cos(angOff), sin = Math.sin(angOff);
+    const vx = dirX * cos - dirY * sin;
+    const vy = dirX * sin + dirY * cos;
+    state.projectiles.push({
+      x: state.player.x, y: state.player.y,
+      vx: vx * speed, vy: vy * speed,
+      r: 5,
+      dmg,
+      pierce: state.evolved.socratic ? 999 : 0,
+      hits: new Set(),
+      life: 1.4 * rangeMul(),
+      kind: state.evolved.socratic ? 'socratic' : 'toi',
+    });
+  }
+}
+
+function fireKotoba(lv) {
+  const radius = (60 + lv * 10) * rangeMul();
+  const dmg = 1 + Math.floor(lv / 2);
+  state.projectiles.push({
+    x: state.player.x, y: state.player.y,
+    aoe: true,
+    r: 0, targetR: radius,
+    dmg,
+    life: 0.32,
+    age: 0,
+    hits: new Set(),
+    kind: 'kotoba',
+  });
+}
+
+function updateNaisei(dt) {
+  const lv = weaponLv('naisei');
+  if (!lv) return;
+  state.weaponState.naisei.angle += dt * 2.4;
+  const count = 1 + Math.floor(lv / 3);
+  const dist = 44 * rangeMul();
+  for (let i = 0; i < count; i++) {
+    const a = state.weaponState.naisei.angle + (Math.PI * 2 * i) / count;
+    const x = state.player.x + Math.cos(a) * dist;
+    const y = state.player.y + Math.sin(a) * dist;
+    for (const e of state.enemies) {
+      const dx = e.x - x, dy = e.y - y;
+      if (dx * dx + dy * dy < (e.r + 9) * (e.r + 9)) {
+        if (!e.naiseiCd || e.naiseiCd <= 0) {
+          e.hp -= 1 + Math.floor(lv / 3);
+          e.naiseiCd = 0.35;
+        }
+      }
+    }
+  }
+  for (const e of state.enemies) {
+    if (e.naiseiCd > 0) e.naiseiCd -= dt;
+  }
+}
+
+function updateWeapons(dt) {
+  // toi or socratic
+  const toiLv = weaponLv('toi');
+  if (toiLv) {
+    const ws = state.weaponState.toi;
+    ws.cd -= dt;
+    const baseCd = state.evolved.socratic ? 0.18 : (1.1 - toiLv * 0.06);
+    if (ws.cd <= 0) {
+      fireToi(toiLv);
+      ws.cd = baseCd * cooldownMul();
+    }
+  }
+  // kotoba
+  const kotobaLv = weaponLv('kotoba');
+  if (kotobaLv) {
+    const ws = state.weaponState.kotoba;
+    ws.cd -= dt;
+    if (ws.cd <= 0) {
+      fireKotoba(kotobaLv);
+      ws.cd = (2.2 - kotobaLv * 0.1) * cooldownMul();
+    }
+  }
+  // naisei: orbit, no cooldown
+  updateNaisei(dt);
+}
+
+function updateProjectiles(dt) {
+  for (const p of state.projectiles) {
+    if (p.aoe) {
+      p.age += dt;
+      p.r = (p.age / p.life) * p.targetR;
+      // hit anything within radius (once per enemy)
+      for (const e of state.enemies) {
+        if (p.hits.has(e)) continue;
+        const dx = e.x - p.x, dy = e.y - p.y;
+        if (dx * dx + dy * dy < p.r * p.r) {
+          e.hp -= p.dmg;
+          p.hits.add(e);
+        }
+      }
+    } else {
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.life -= dt;
+      // collision
+      for (const e of state.enemies) {
+        if (p.hits.has(e)) continue;
+        const dx = e.x - p.x, dy = e.y - p.y;
+        if (dx * dx + dy * dy < (e.r + p.r) * (e.r + p.r)) {
+          e.hp -= p.dmg;
+          p.hits.add(e);
+          if (p.pierce <= 0) { p.life = 0; break; }
+          p.pierce--;
+        }
+      }
+    }
+  }
+  state.projectiles = state.projectiles.filter(p => p.aoe ? p.age < p.life : p.life > 0);
+}
+
+// ============================================================
+// Collisions / Death / Pickup
+// ============================================================
+
+function processDeaths() {
+  const survivors = [];
+  for (const e of state.enemies) {
+    if (e.hp <= 0) {
+      state.kills++;
+      state.orbs.push({ x: e.x, y: e.y, value: e.xp, vx: 0, vy: 0 });
+    } else {
+      survivors.push(e);
+    }
+  }
+  state.enemies = survivors;
+}
+
+function updatePlayer(dt) {
+  const m = readMove();
+  if (m.x || m.y) {
+    state.player.x += m.x * state.player.moveSpeed * dt;
+    state.player.y += m.y * state.player.moveSpeed * dt;
+    state.player.facing = m;
+  }
+  state.player.x = Math.max(20, Math.min(W - 20, state.player.x));
+  state.player.y = Math.max(20, Math.min(H - 20, state.player.y));
+
+  // damage on contact
+  if (state.elapsed > state.player.iframeUntil) {
+    for (const e of state.enemies) {
+      const dx = e.x - state.player.x, dy = e.y - state.player.y;
+      if (dx * dx + dy * dy < (e.r + state.player.r) * (e.r + state.player.r)) {
+        state.player.hp -= 1;
+        state.player.iframeUntil = state.elapsed + 0.9;
+        sfx('hit');
+        if (state.player.hp <= 0) gameOver();
+        break;
+      }
+    }
+  }
+}
+
+function updateOrbs(dt) {
+  for (const o of state.orbs) {
+    const dx = state.player.x - o.x, dy = state.player.y - o.y;
+    const d = Math.hypot(dx, dy) || 1;
+    if (d < 80) {
+      const pull = 240;
+      o.x += (dx / d) * pull * dt;
+      o.y += (dy / d) * pull * dt;
+    }
+    if (d < 14) {
+      o.collected = true;
+      gainXp(o.value);
+    }
+  }
+  state.orbs = state.orbs.filter(o => !o.collected);
+}
+
+// ============================================================
+// XP / Level up
+// ============================================================
+
+function gainXp(v) {
+  state.xp += v;
+  let leveled = false;
+  while (state.xp >= state.xpNext) {
+    state.xp -= state.xpNext;
+    state.level++;
+    state.xpNext = Math.round(state.xpNext * 1.35 + 1);
+    state.pendingLevels++;
+    leveled = true;
+  }
+  if (leveled) sfx('level');
+  else sfx('pickup');
+  if (state.pendingLevels > 0 && state.phase === 'play') {
+    presentLevelUp();
+  }
+}
+
+function eligibleEvolutions() {
+  const list = [];
+  for (const evo of EVOLUTIONS) {
+    if (state.evolved[evo.id]) continue;
+    const r = evo.requires;
+    if (r.weapon && weaponLv(r.weapon) < r.weaponLv) continue;
+    if (r.passive && passiveLv(r.passive) < r.passiveLv) continue;
+    list.push(evo);
+  }
+  return list;
+}
+
+function buildChoiceList() {
+  // If an evolution is eligible, prioritize it (always offered as 1 of 3).
+  const evos = eligibleEvolutions();
+  const pool = [];
+
+  // Evolutions
+  for (const evo of evos) {
+    pool.push({ kind: 'evo', evo });
+  }
+
+  // Weapons (new or upgrade)
+  const ownedWeapons = Object.keys(state.weapons).filter(k => state.weapons[k] > 0);
+  for (const id in WEAPONS) {
+    const w = WEAPONS[id];
+    const lv = weaponLv(id);
+    if (lv === 0 && ownedWeapons.length >= 3 && !state.weapons[id]) continue;
+    if (lv >= w.maxLv) continue;
+    pool.push({ kind: 'weapon', id, nextLv: lv + 1 });
+  }
+
+  // Passives
+  for (const id in PASSIVES) {
+    const p = PASSIVES[id];
+    const lv = passiveLv(id);
+    if (lv >= p.maxLv) continue;
+    pool.push({ kind: 'passive', id, nextLv: lv + 1 });
+  }
+
+  // Always include heal as filler
+  if (state.player.hp < state.player.maxHp) {
+    pool.push({ kind: 'heal' });
+  }
+
+  // pick: at most 1 evo + random others, total 3
+  const out = [];
+  if (evos.length > 0) {
+    out.push({ kind: 'evo', evo: evos[0] });
+  }
+  const rest = pool.filter(c => c.kind !== 'evo');
+  shuffle(rest);
+  while (out.length < 3 && rest.length) out.push(rest.shift());
+  return out;
+}
+
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function applyChoice(c) {
+  if (c.kind === 'weapon') {
+    state.weapons[c.id] = (state.weapons[c.id] || 0) + 1;
+  } else if (c.kind === 'passive') {
+    state.passives[c.id] = (state.passives[c.id] || 0) + 1;
+    if (c.id === 'nintai') {
+      state.player.maxHp += 1;
+      state.player.hp += 1;
+    }
+  } else if (c.kind === 'heal') {
+    state.player.hp = state.player.maxHp;
+  } else if (c.kind === 'evo') {
+    const evo = c.evo;
+    state.evolved[evo.id] = true;
+    showEvolveBanner(evo.name);
+    sfx('evolve');
+  }
+  state.pendingLevels--;
+  if (state.pendingLevels > 0) {
+    presentLevelUp();
+  } else {
+    closeOverlay();
+    state.phase = 'play';
+  }
+  refreshHud();
+}
+
+function presentLevelUp() {
+  state.phase = 'levelup';
+  const choices = buildChoiceList();
+  const modal = document.getElementById('modal');
+  modal.innerHTML = '';
+  const h2 = document.createElement('h2'); h2.textContent = 'LEVEL UP'; modal.appendChild(h2);
+  const lead = document.createElement('div'); lead.className = 'lead';
+  lead.textContent = `Lv ${state.level} — 何を選ぶ？`;
+  modal.appendChild(lead);
+
+  const list = document.createElement('div'); list.className = 'choices';
+  choices.forEach((c, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'choice' + (c.kind === 'evo' ? ' evo' : '');
+
+    const glyph = document.createElement('div'); glyph.className = 'glyph';
+    const meta = document.createElement('div'); meta.className = 'meta';
+    const title = document.createElement('div'); title.className = 'title';
+    const desc = document.createElement('div'); desc.className = 'desc';
+
+    if (c.kind === 'weapon') {
+      const w = WEAPONS[c.id];
+      glyph.textContent = w.glyph;
+      title.innerHTML = `${w.name} <span class="tag">Lv ${c.nextLv}/${w.maxLv}</span>`;
+      desc.textContent = c.nextLv === 1 ? w.desc : w.levelDesc(c.nextLv);
+    } else if (c.kind === 'passive') {
+      const p = PASSIVES[c.id];
+      glyph.textContent = p.glyph;
+      title.innerHTML = `${p.name} <span class="tag">Lv ${c.nextLv}/${p.maxLv}</span>`;
+      desc.textContent = p.levelDesc(c.nextLv);
+    } else if (c.kind === 'heal') {
+      glyph.textContent = '♥';
+      title.innerHTML = `休息 <span class="tag">heal</span>`;
+      desc.textContent = `HP を満タンに戻す`;
+    } else if (c.kind === 'evo') {
+      glyph.textContent = c.evo.glyph;
+      title.innerHTML = `${c.evo.name} <span class="tag">進化</span>`;
+      desc.textContent = c.evo.desc;
+    }
+
+    btn.appendChild(glyph);
+    meta.appendChild(title); meta.appendChild(desc);
+    btn.appendChild(meta);
+    btn.addEventListener('click', () => applyChoice(c));
+    list.appendChild(btn);
+  });
+  modal.appendChild(list);
+
+  // keyboard 1/2/3
+  document.getElementById('overlay').classList.add('show');
+  setTimeout(() => list.querySelector('button')?.focus(), 0);
+}
+
+function showEvolveBanner(name) {
+  const b = document.getElementById('banner');
+  b.textContent = name;
+  b.classList.remove('show');
+  void b.offsetWidth; // restart
+  b.classList.add('show');
+}
+
+// ============================================================
+// HUD
+// ============================================================
+
+function refreshHud() {
+  // hearts
+  const hpEl = document.getElementById('hp');
+  hpEl.innerHTML = '';
+  for (let i = 0; i < state.player.maxHp; i++) {
+    const h = document.createElement('div');
+    h.className = 'heart' + (i < state.player.hp ? '' : ' empty');
+    hpEl.appendChild(h);
+  }
+  document.getElementById('lv').textContent = state.level;
+
+  // build sidebar
+  const buildEl = document.getElementById('build');
+  buildEl.innerHTML = '';
+  for (const id in state.weapons) {
+    const lv = state.weapons[id]; if (!lv) continue;
+    const w = WEAPONS[id];
+    const item = document.createElement('div');
+    const isEvolved = id === 'toi' && state.evolved.socratic;
+    item.className = 'item' + (isEvolved ? ' evolved' : '');
+    item.innerHTML = `<span class="name">${isEvolved ? 'ソクラテス的問答' : w.name}</span> <span class="lv">Lv ${lv}</span>`;
+    buildEl.appendChild(item);
+  }
+  for (const id in state.passives) {
+    const lv = state.passives[id]; if (!lv) continue;
+    const p = PASSIVES[id];
+    const item = document.createElement('div');
+    item.className = 'item';
+    item.innerHTML = `<span class="name">${p.name}</span> <span class="lv">Lv ${lv}</span>`;
+    buildEl.appendChild(item);
+  }
+}
+
+function refreshTimer() {
+  const remain = Math.max(0, 60 - state.elapsed);
+  const m = Math.floor(remain / 60), s = Math.floor(remain % 60);
+  document.getElementById('timer').textContent = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+function refreshXpBar() {
+  const f = state.xp / state.xpNext;
+  document.getElementById('xpfill').style.width = (f * 100) + '%';
+}
+
+function closeOverlay() {
+  document.getElementById('overlay').classList.remove('show');
+}
+
+// ============================================================
+// Audio (Web Audio, generated)
+// ============================================================
+
+let audioCtx = null;
+function initAudio() {
+  if (audioCtx) return;
+  try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch {}
+}
+function sfx(kind) {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.connect(g); g.connect(audioCtx.destination);
+  if (kind === 'shoot') {
+    o.type = 'triangle'; o.frequency.setValueAtTime(620, t);
+    o.frequency.exponentialRampToValueAtTime(360, t + 0.08);
+    g.gain.setValueAtTime(0.04, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+    o.start(t); o.stop(t + 0.12);
+  } else if (kind === 'hit') {
+    o.type = 'square'; o.frequency.setValueAtTime(220, t);
+    o.frequency.exponentialRampToValueAtTime(80, t + 0.18);
+    g.gain.setValueAtTime(0.07, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+    o.start(t); o.stop(t + 0.22);
+  } else if (kind === 'pickup') {
+    o.type = 'sine'; o.frequency.setValueAtTime(820, t);
+    o.frequency.exponentialRampToValueAtTime(1200, t + 0.06);
+    g.gain.setValueAtTime(0.03, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+    o.start(t); o.stop(t + 0.1);
+  } else if (kind === 'level') {
+    o.type = 'sine'; o.frequency.setValueAtTime(520, t);
+    o.frequency.exponentialRampToValueAtTime(880, t + 0.18);
+    g.gain.setValueAtTime(0.05, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+    o.start(t); o.stop(t + 0.32);
+  } else if (kind === 'evolve') {
+    const o2 = audioCtx.createOscillator(); const g2 = audioCtx.createGain();
+    o2.connect(g2); g2.connect(audioCtx.destination);
+    o.type = 'sine'; o2.type = 'sine';
+    o.frequency.setValueAtTime(440, t); o.frequency.exponentialRampToValueAtTime(880, t + 0.4);
+    o2.frequency.setValueAtTime(660, t); o2.frequency.exponentialRampToValueAtTime(1320, t + 0.4);
+    g.gain.setValueAtTime(0.06, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+    g2.gain.setValueAtTime(0.04, t); g2.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+    o.start(t); o2.start(t); o.stop(t + 0.55); o2.stop(t + 0.55);
+  }
+}
+
+// ============================================================
+// Game loop
+// ============================================================
+
+let lastT = 0;
+function frame(now) {
+  const dt = Math.min(0.05, (now - lastT) / 1000 || 0);
+  lastT = now;
+
+  if (state.phase === 'play') {
+    state.elapsed += dt;
+    if (state.elapsed >= 60) { victory(); }
+    updatePlayer(dt);
+    updateEnemies(dt);
+    updateWeapons(dt);
+    updateProjectiles(dt);
+    processDeaths();
+    updateOrbs(dt);
+  }
+
+  // blink timer (always tick, not just play)
+  if (state.elapsed * 1000 > state.nextBlinkAt && state.elapsed > state.blinkUntil) {
+    state.blinkUntil = state.elapsed + 0.13;
+    state.nextBlinkAt = (state.elapsed + 3.5 + Math.random() * 3.5) * 1000;
+  }
+
+  draw();
+  refreshTimer();
+  refreshXpBar();
+
+  requestAnimationFrame(frame);
+}
+
+function draw() {
+  // bg
+  ctx.fillStyle = '#0f1114';
+  ctx.fillRect(0, 0, W, H);
+
+  // subtle grid (chamber feel)
+  ctx.strokeStyle = 'rgba(184, 164, 212, 0.04)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 40) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  for (let y = 0; y < H; y += 40) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  // orbs
+  for (const o of state.orbs) {
+    ctx.fillStyle = '#6e82a8';
+    ctx.beginPath(); ctx.arc(o.x, o.y, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(110, 130, 168, 0.25)';
+    ctx.beginPath(); ctx.arc(o.x, o.y, 6, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // enemies
+  for (const e of state.enemies) drawBonnou(e);
+
+  // naisei orbs
+  const naiseiLv = weaponLv('naisei');
+  if (naiseiLv) {
+    const count = 1 + Math.floor(naiseiLv / 3);
+    const dist = 44 * rangeMul();
+    for (let i = 0; i < count; i++) {
+      const a = state.weaponState.naisei.angle + (Math.PI * 2 * i) / count;
+      const x = state.player.x + Math.cos(a) * dist;
+      const y = state.player.y + Math.sin(a) * dist;
+      ctx.fillStyle = 'rgba(184, 164, 212, 0.85)';
+      ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(184, 164, 212, 0.35)';
+      ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+
+  // player
+  const blinking = state.elapsed < state.blinkUntil;
+  const focused = (state.weapons.toi || state.weapons.kotoba || state.weapons.naisei);
+  // iframe flash
+  const inIframe = state.elapsed < state.player.iframeUntil;
+  if (!inIframe || Math.floor(state.elapsed * 14) % 2 === 0) {
+    drawBob(state.player.x, state.player.y, 0.7, blinking, !!focused);
+  }
+
+  // projectiles
+  for (const p of state.projectiles) {
+    if (p.aoe) {
+      ctx.strokeStyle = 'rgba(184, 164, 212, 0.7)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.stroke();
+    } else if (p.kind === 'socratic') {
+      ctx.fillStyle = '#f4d77e';
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(244, 215, 126, 0.3)';
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r * 1.8, 0, Math.PI * 2); ctx.fill();
+    } else {
+      ctx.fillStyle = '#cfc7b4';
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+}
+
+// ============================================================
+// Game flow
+// ============================================================
+
+function startGame() {
+  initAudio();
+  state = newState();
+  state.phase = 'play';
+  // 初手は武器なし。最初のレベルアップでビルドが始まる。
+  // ただし退屈防止として、最初の選択肢を出す。
+  state.pendingLevels = 1;
+  presentLevelUp();
+  refreshHud();
+  closeOverlayIfNeeded();
+}
+
+function closeOverlayIfNeeded() {
+  // presentLevelUp already opens overlay; nothing to do.
+}
+
+function gameOver() {
+  if (state.phase === 'lose' || state.phase === 'win') return;
+  state.phase = 'lose';
+  showResult(false);
+}
+
+function victory() {
+  if (state.phase === 'win' || state.phase === 'lose') return;
+  state.phase = 'win';
+  showResult(true);
+  sfx('evolve');
+}
+
+function showResult(win) {
+  const modal = document.getElementById('modal');
+  modal.className = 'modal result' + (win ? ' win' : '');
+  modal.innerHTML = '';
+  const h2 = document.createElement('h2');
+  h2.textContent = win ? '生き延びた' : '煩悩に呑まれた';
+  modal.appendChild(h2);
+  const lead = document.createElement('div'); lead.className = 'lead';
+  lead.textContent = win ? '一分間、ぼぶは黙考し続けた' : 'もう一度、問い直そう';
+  modal.appendChild(lead);
+
+  const stats = document.createElement('div'); stats.className = 'stats';
+  const rows = [
+    ['到達 Lv', state.level],
+    ['撃破した煩悩', state.kills],
+    ['進化武器', state.evolved.socratic ? 'ソクラテス的問答' : '—'],
+  ];
+  for (const [k, v] of rows) {
+    const a = document.createElement('div'); a.textContent = k;
+    const b = document.createElement('div'); b.className = 'v'; b.textContent = v;
+    stats.appendChild(a); stats.appendChild(b);
+  }
+  modal.appendChild(stats);
+
+  const btn = document.createElement('button');
+  btn.className = 'again';
+  btn.textContent = 'もう一度';
+  btn.addEventListener('click', () => {
+    modal.className = 'modal';
+    startGame();
+  });
+  modal.appendChild(btn);
+
+  document.getElementById('overlay').classList.add('show');
+}
+
+// ============================================================
+// Title screen
+// ============================================================
+
+function showTitle() {
+  state = newState();
+  const modal = document.getElementById('modal');
+  modal.className = 'modal title-screen';
+  modal.innerHTML = '';
+  const t = document.createElement('div'); t.className = 'title'; t.textContent = 'ぼぶサバイバー';
+  const sub = document.createElement('div'); sub.className = 'subtitle'; sub.textContent = '一分間の黙考';
+  modal.appendChild(t); modal.appendChild(sub);
+
+  const keys = document.createElement('div'); keys.className = 'keys';
+  keys.innerHTML = `
+    <div><kbd>WASD</kbd> / <kbd>←↑→↓</kbd> 移動</div>
+    <div>武器は自動で発動する</div>
+    <div>レベルアップで <kbd>1</kbd>–<kbd>3</kbd> を選ぶ</div>
+  `;
+  modal.appendChild(keys);
+
+  const btn = document.createElement('button');
+  btn.className = 'again';
+  btn.textContent = '黙考を始める';
+  btn.addEventListener('click', () => { modal.className = 'modal'; startGame(); });
+  modal.appendChild(btn);
+
+  document.getElementById('overlay').classList.add('show');
+  setTimeout(() => btn.focus(), 0);
+}
+
+// number key shortcut for choices
+window.addEventListener('keydown', (e) => {
+  if (state && state.phase === 'levelup') {
+    const idx = ['1','2','3'].indexOf(e.key);
+    if (idx >= 0) {
+      const list = document.querySelectorAll('#modal .choice');
+      if (list[idx]) list[idx].click();
+    }
+  }
+});
+
+// ============================================================
+// Boot
+// ============================================================
+
+state = newState();
+showTitle();
+refreshHud();
+requestAnimationFrame(frame);
+
+</script>
+</body>
+</html>
