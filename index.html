@@ -329,6 +329,16 @@ const WEAPONS = {
                      lv === 3 || lv === 6 ? '盾の数が増える' :
                      '内省の威力が増す',
   },
+  kansatsu: {
+    id: 'kansatsu',
+    name: '観察',
+    glyph: '|',
+    desc: '見据えた一直線の上の煩悩を、まとめて貫く',
+    maxLv: 8,
+    levelDesc: lv => lv === 1 ? '取得：最寄りの敵に貫通ビーム' :
+                     lv === 8 ? '視線が極まる' :
+                     '頻度↑　ダメージ↑',
+  },
 };
 
 const PASSIVES = {
@@ -349,6 +359,30 @@ const PASSIVES = {
     desc: '体力の上限が増える',
     maxLv: 5,
     levelDesc: lv => `最大 HP +${lv}`,
+  },
+  ayumi: {
+    id: 'ayumi', name: '歩み', glyph: '→',
+    desc: '足取りが軽くなる',
+    maxLv: 5,
+    levelDesc: lv => `移動速度 +${lv * 12}%`,
+  },
+  kizuki: {
+    id: 'kizuki', name: '気づき', glyph: '✧',
+    desc: '月光の粒（XP）を多く受け取る',
+    maxLv: 5,
+    levelDesc: lv => `XP 取得 +${lv * 20}%`,
+  },
+  kokyu: {
+    id: 'kokyu', name: '呼吸', glyph: '〇',
+    desc: '一定時間ごとに HP が 1 戻る。Lv で間隔が短くなる',
+    maxLv: 5,
+    levelDesc: lv => `${(7 - lv * 0.9).toFixed(1)}s ごとに HP +1`,
+  },
+  chomei: {
+    id: 'chomei', name: '澄明', glyph: '◇',
+    desc: 'すべての武器のダメージが上がる',
+    maxLv: 3,
+    levelDesc: lv => `全武器ダメージ +${lv}`,
   },
 };
 
@@ -418,19 +452,21 @@ function newState() {
     enemies: [],
     projectiles: [],
     orbs: [],
-    weapons: {},   // id -> level (0 = unowned)
+    weapons: { toi: 1 },   // id -> level (0 = unowned)。問い Lv1 を初期装備として開始
     passives: {},  // id -> level
     evolved: {},   // evoId -> true
     weaponState: {
       toi: { cd: 0 },
       kotoba: { cd: 0 },
       naisei: { angle: 0 },
+      kansatsu: { cd: 0.6 },  // ゲーム開始直後にいきなり撃たない
     },
     level: 1,
     xp: 0,
     xpNext: 5,
     spawnTimer: 0,
-    spawnInterval: 1.1,
+    spawnInterval: 1.0,
+    healTimer: 0,             // 呼吸パッシブ用の蓄積タイマー
     kills: 0,
     pendingLevels: 0,
   };
@@ -441,12 +477,25 @@ function newState() {
 // ============================================================
 
 function drawBob(x, y, scale, blinking, focused) {
-  // SVG path-relative -> canvas. Original viewBox 0..64.
-  // Hood path: rounded shoulder dome.
   const s = scale;
   const left = x - 16 * s, top = y - 16 * s;
-  // hood silhouette
-  ctx.fillStyle = '#171717';
+  const k = state.phase === 'play' || state.phase === 'levelup' ? worldLight() : 0;
+
+  // 終盤、ぼぶの周囲に淡い月光ハロー
+  if (k > 0.55) {
+    const halo = (k - 0.55) / 0.45;
+    const grad = ctx.createRadialGradient(x, y, 8 * s, x, y, 36 * s);
+    grad.addColorStop(0, `rgba(244, 241, 234, ${halo * 0.35})`);
+    grad.addColorStop(1, 'rgba(244, 241, 234, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(x, y, 36 * s, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // hood silhouette（光が増すほどわずかに明るくなる）
+  const hoodShade = 23 + Math.floor(k * 26);  // 23 → 49
+  ctx.fillStyle = `rgb(${hoodShade},${hoodShade},${hoodShade})`;
   ctx.beginPath();
   ctx.moveTo(left + 32 * s, top + 6 * s);
   ctx.bezierCurveTo(left + 18 * s, top + 6 * s, left + 12 * s, top + 18 * s, left + 12 * s, top + 32 * s);
@@ -461,8 +510,9 @@ function drawBob(x, y, scale, blinking, focused) {
   ctx.beginPath();
   ctx.ellipse(x, y - 2 * s, 12 * s, 15 * s, 0, 0, Math.PI * 2);
   ctx.fill();
-  // eyes
-  ctx.fillStyle = focused ? '#f4f1ea' : '#cfc7b4';
+  // eyes（終盤は冴えが強い）
+  const eyeIvory = focused || k > 0.6 ? '#f4f1ea' : '#cfc7b4';
+  ctx.fillStyle = eyeIvory;
   const ey = y - 2 * s;
   const eyeRy = blinking ? 0.18 : 1.5;
   const eyeRx = 1.5;
@@ -472,24 +522,144 @@ function drawBob(x, y, scale, blinking, focused) {
   ctx.fill();
 }
 
+// 三毒：瞋（怒り）・貪（欲）・痴（無知）。撃破時に対応する漢字がフロート表示される
+const ENEMY_TYPES = {
+  jin: {  // 瞋: 赤い角を持つ、素早い、HP 低め
+    hpMod: 0,
+    speedMul: 1.25,
+    rMod: -1,
+    color: '#1a0d10',
+    eyeColor: '#e25555',
+  },
+  ton: {  // 貪: 大きく膨らむ、遅い、HP +1
+    hpMod: 1,
+    speedMul: 0.65,
+    rMod: 4,
+    color: '#1a1308',
+    eyeColor: '#d4a14a',
+  },
+  chi: {  // 痴: 半透明で群れる、HP 低め、輪郭がぼやける
+    hpMod: 0,
+    speedMul: 1.0,
+    rMod: -1,
+    color: '#0e1218',
+    eyeColor: '#7e90b8',
+    alpha: 0.55,
+  },
+};
+
+function pickEnemyType(t) {
+  // 時間で出現比率を変える：序盤は瞋、中盤は貪、終盤は痴の群れ
+  const r = Math.random();
+  if (t < 18) return 'jin';
+  if (t < 35) return r < 0.65 ? 'jin' : r < 0.92 ? 'ton' : 'chi';
+  if (t < 50) return r < 0.4 ? 'jin' : r < 0.7 ? 'ton' : 'chi';
+  return r < 0.3 ? 'jin' : r < 0.55 ? 'ton' : 'chi';
+}
+
+// 世界の進行度（0..1）。「映す世界を間違えた」テーマで時間経過とともに光に向かう
+function worldLight() {
+  return Math.min(1, state.elapsed / 60);
+}
+
+// 進行率で目の色を象牙色に近づけるブレンド（敵が「自分」に近づく演出）
+function dropColorFor(type, k) {
+  // 進行率で赤系の目色 → 象牙色（プレイヤーと同色）に近づく
+  const ivory = [207, 199, 180]; // #cfc7b4
+  const c = ENEMY_TYPES[type].eyeColor;
+  // hex → rgb
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(c);
+  if (!m) return c;
+  const r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16);
+  const blend = Math.max(0, (k - 0.4) / 0.6); // 0.4 から滑らかに
+  const rr = Math.round(r + (ivory[0] - r) * blend);
+  const gg = Math.round(g + (ivory[1] - g) * blend);
+  const bb = Math.round(b + (ivory[2] - b) * blend);
+  return `rgb(${rr},${gg},${bb})`;
+}
+
 function drawBonnou(e) {
+  const type = ENEMY_TYPES[e.type] || ENEMY_TYPES.jin;
+  const k = worldLight();
+  // 中盤以降フードが透けていく（敵の見方が変わる）
+  const hoodAlpha = Math.max(0.32, 1 - Math.max(0, (k - 0.45) / 0.55) * 0.6);
+  // 終盤に内側のシルエットが「ぼぶに似た形」として浮かび上がる
+  const innerReveal = Math.max(0, (k - 0.6) / 0.4); // 0.6 から 0..1
   const t = e.wobble;
-  const w = 14 + Math.sin(t) * 1.5;
-  ctx.fillStyle = '#1a0f14';
+  const baseW = 14 + (type.rMod || 0);
+  const w = baseW + Math.sin(t) * 1.5;
+  const h = 16 + (type.rMod || 0) * 0.7;
+
+  const baseAlpha = type.alpha || 1;
+  ctx.globalAlpha = baseAlpha * hoodAlpha;
+
+  // body（フード）
+  ctx.fillStyle = type.color;
   ctx.beginPath();
-  ctx.ellipse(e.x, e.y, w, 16, 0, 0, Math.PI * 2);
+  ctx.ellipse(e.x, e.y, w, h, 0, 0, Math.PI * 2);
   ctx.fill();
   // hood overhang
-  ctx.fillStyle = '#0a050a';
+  ctx.fillStyle = '#050308';
   ctx.beginPath();
-  ctx.ellipse(e.x, e.y - 5, w - 1, 10, 0, 0, Math.PI * 2);
+  ctx.ellipse(e.x, e.y - 5, w - 1, h * 0.62, 0, 0, Math.PI * 2);
   ctx.fill();
-  // red eyes
-  ctx.fillStyle = '#c44a4a';
+
+  // 瞋の角（怒りの突起）— 終盤は薄れる
+  if (e.type === 'jin' && innerReveal < 0.7) {
+    ctx.fillStyle = type.color;
+    ctx.beginPath();
+    ctx.moveTo(e.x - w * 0.7, e.y - h * 0.5);
+    ctx.lineTo(e.x - w * 0.95, e.y - h * 1.0);
+    ctx.lineTo(e.x - w * 0.4, e.y - h * 0.65);
+    ctx.closePath();
+    ctx.moveTo(e.x + w * 0.7, e.y - h * 0.5);
+    ctx.lineTo(e.x + w * 0.95, e.y - h * 1.0);
+    ctx.lineTo(e.x + w * 0.4, e.y - h * 0.65);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // 貪の脈動
+  if (e.type === 'ton') {
+    const pulse = 0.5 + Math.sin(t * 2) * 0.3;
+    ctx.fillStyle = `rgba(212, 161, 74, ${pulse * 0.18})`;
+    ctx.beginPath();
+    ctx.ellipse(e.x, e.y + 1, w * 0.6, h * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.globalAlpha = 1;
+
+  // 内側のシルエット（ぼぶに似た小さな影）— 終盤に浮かぶ
+  if (innerReveal > 0) {
+    ctx.globalAlpha = innerReveal * 0.85;
+    ctx.fillStyle = '#ece6d6';  // ぼぶと同じ象牙色
+    ctx.beginPath();
+    // 小さなフード姿のシルエット
+    ctx.ellipse(e.x, e.y + 1, w * 0.55, h * 0.7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // eyes（進行率で象牙色に近づく）
+  ctx.globalAlpha = baseAlpha;
+  ctx.fillStyle = dropColorFor(e.type, k);
   ctx.beginPath();
-  ctx.arc(e.x - 3.5, e.y - 2, 1.1, 0, Math.PI * 2);
-  ctx.arc(e.x + 3.5, e.y - 2, 1.1, 0, Math.PI * 2);
+  ctx.arc(e.x - 3.5, e.y - 2, 1.2, 0, Math.PI * 2);
+  ctx.arc(e.x + 3.5, e.y - 2, 1.2, 0, Math.PI * 2);
   ctx.fill();
+
+  ctx.globalAlpha = 1;
+
+  // 命中フラッシュ（最後に重ねる）
+  if (e.hitFlash > 0) {
+    const f = Math.min(1, e.hitFlash / 0.18);
+    ctx.strokeStyle = `rgba(244, 241, 234, ${f * 0.85})`;
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.ellipse(e.x, e.y, w + 2 + (1 - f) * 4, h + 2 + (1 - f) * 4, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
 }
 
 // ============================================================
@@ -499,11 +669,32 @@ function drawBonnou(e) {
 function passiveLv(id) { return state.passives[id] || 0; }
 function weaponLv(id) { return state.weapons[id] || 0; }
 
+// ダメージ + 命中フラッシュを 1 箇所に集約
+function damageEnemy(e, amount) {
+  e.hp -= amount;
+  e.hitFlash = 0.18;
+}
+
 function cooldownMul() {
   return 1 - 0.08 * passiveLv('chinmoku');
 }
 function rangeMul() {
   return 1 + 0.12 * passiveLv('meiseki');
+}
+function moveMul() {
+  return 1 + 0.12 * passiveLv('ayumi');
+}
+function xpMul() {
+  return 1 + 0.20 * passiveLv('kizuki');
+}
+function dmgBonus() {
+  return passiveLv('chomei');
+}
+function kokyuInterval() {
+  // 0 = 無し、Lv1 = 6.1s、Lv5 = 2.5s
+  const lv = passiveLv('kokyu');
+  if (!lv) return Infinity;
+  return 7 - lv * 0.9;
 }
 
 // ============================================================
@@ -535,23 +726,36 @@ function spawnEnemy() {
   else if (side === 1) { x = W + 20; y = Math.random() * H; }
   else if (side === 2) { x = Math.random() * W; y = H + 20; }
   else { x = -20; y = Math.random() * H; }
-  const tier = Math.min(3, Math.floor(state.elapsed / 15));
+  // 序盤は 1 撃で倒せるよう HP=1、時間経過で段階的に上昇（最大 4）
+  const t = state.elapsed;
+  let baseHp;
+  if (t < 18) baseHp = 1;
+  else if (t < 35) baseHp = 2;
+  else if (t < 50) baseHp = 3;
+  else baseHp = 4;
+  const type = pickEnemyType(t);
+  const typeData = ENEMY_TYPES[type];
+  const speedTier = Math.min(3, Math.floor(t / 20));
+  const baseSpeed = 34 + speedTier * 5 + Math.random() * 12;
   state.enemies.push({
-    x, y, r: 11,
-    hp: 2 + tier,
-    speed: 50 + tier * 8 + Math.random() * 20,
+    x, y,
+    r: 11 + (typeData.rMod || 0),
+    hp: Math.max(1, baseHp + typeData.hpMod),
+    speed: baseSpeed * typeData.speedMul,
     wobble: Math.random() * Math.PI * 2,
     xp: 1,
+    type,
   });
 }
 
 function updateEnemies(dt) {
   state.spawnTimer += dt;
-  // density ramps over time
-  const interval = Math.max(0.18, state.spawnInterval - state.elapsed * 0.012);
+  // density ramps over time（数で押される手応えを出す。HP は別軸で抑える）
+  const interval = Math.max(0.28, state.spawnInterval - state.elapsed * 0.014);
   while (state.spawnTimer >= interval) {
     state.spawnTimer -= interval;
-    const burst = 1 + Math.floor(state.elapsed / 25);
+    // burst: 25s から 2 体、50s から 3 体
+    const burst = state.elapsed < 25 ? 1 : state.elapsed < 50 ? 2 : 3;
     for (let i = 0; i < burst; i++) spawnEnemy();
   }
 
@@ -562,6 +766,7 @@ function updateEnemies(dt) {
     e.x += (dx / d) * e.speed * dt;
     e.y += (dy / d) * e.speed * dt;
     e.wobble += dt * 6;
+    if (e.hitFlash > 0) e.hitFlash -= dt;
   }
 
   // separation (very light, prevents pile up)
@@ -600,7 +805,7 @@ function nearestEnemy(x, y, max = Infinity) {
 function fireToi(lv) {
   const baseCount = 1 + Math.floor((lv - 1) / 3); // 1,1,1,2,2,2,3,3
   const count = state.evolved.socratic ? baseCount + 2 : baseCount;
-  const dmg = 1 + Math.floor((lv - 1) / 2);
+  const dmg = 1 + Math.floor((lv - 1) / 2) + dmgBonus();
   const spread = (count - 1) * 0.16;
   const target = nearestEnemy(state.player.x, state.player.y, 600);
   let dirX = state.player.facing.x, dirY = state.player.facing.y;
@@ -631,7 +836,7 @@ function fireToi(lv) {
 function fireKotoba(lv) {
   const evolved = state.evolved.bensho;
   const radius = (60 + lv * 10) * rangeMul() * (evolved ? 1.4 : 1);
-  const dmg = 1 + Math.floor(lv / 2) + (evolved ? 2 : 0);
+  const dmg = 1 + Math.floor(lv / 2) + (evolved ? 2 : 0) + dmgBonus();
   state.projectiles.push({
     x: state.player.x, y: state.player.y,
     aoe: true,
@@ -641,6 +846,39 @@ function fireKotoba(lv) {
     age: 0,
     hits: new Set(),
     kind: evolved ? 'bensho' : 'kotoba',
+  });
+}
+
+function fireKansatsu(lv) {
+  const target = nearestEnemy(state.player.x, state.player.y, 800);
+  if (!target) return;
+  const dx = target.x - state.player.x, dy = target.y - state.player.y;
+  const d = Math.hypot(dx, dy) || 1;
+  const dirX = dx / d, dirY = dy / d;
+  const length = (380 + lv * 30) * rangeMul();
+  const width = 6;
+  const dmg = 2 + Math.floor(lv / 2) + dmgBonus();
+  // ビームは即時判定：直線への垂直距離で判定し、線分の中にいる敵に一括ダメージ
+  for (const e of state.enemies) {
+    const ex = e.x - state.player.x, ey = e.y - state.player.y;
+    const t = ex * dirX + ey * dirY;
+    if (t < 0 || t > length) continue;
+    const px = ex - t * dirX, py = ey - t * dirY;
+    const pd2 = px * px + py * py;
+    if (pd2 < (e.r + width) * (e.r + width)) {
+      damageEnemy(e, dmg);
+    }
+  }
+  // 視覚エフェクト：閃光ライン
+  state.projectiles.push({
+    x: state.player.x, y: state.player.y,
+    beam: true,
+    dirX, dirY,
+    length,
+    width,
+    life: 0.22,
+    age: 0,
+    kind: 'kansatsu',
   });
 }
 
@@ -664,14 +902,14 @@ function updateNaisei(dt) {
   if (!lv) return;
   const evolved = state.evolved.kanso;
   state.weaponState.naisei.angle += dt * 2.4 * (evolved ? 1.5 : 1);
-  const dmg = 1 + Math.floor(lv / 3) + (evolved ? 2 : 0);
+  const dmg = 1 + Math.floor(lv / 3) + (evolved ? 2 : 0) + dmgBonus();
   const orbR = evolved ? 11 : 9;
   for (const orb of naiseiOrbits()) {
     for (const e of state.enemies) {
       const dx = e.x - orb.x, dy = e.y - orb.y;
       if (dx * dx + dy * dy < (e.r + orbR) * (e.r + orbR)) {
         if (!e.naiseiCd || e.naiseiCd <= 0) {
-          e.hp -= dmg;
+          damageEnemy(e, dmg);
           e.naiseiCd = evolved ? 0.25 : 0.35;
         }
       }
@@ -707,10 +945,25 @@ function updateWeapons(dt) {
   }
   // naisei: orbit, no cooldown
   updateNaisei(dt);
+  // kansatsu: 周期的に最寄りの敵へビーム
+  const kansatsuLv = weaponLv('kansatsu');
+  if (kansatsuLv) {
+    const ws = state.weaponState.kansatsu;
+    ws.cd -= dt;
+    if (ws.cd <= 0) {
+      fireKansatsu(kansatsuLv);
+      const baseCd = 2.5 - kansatsuLv * 0.18;
+      ws.cd = baseCd * cooldownMul();
+    }
+  }
 }
 
 function updateProjectiles(dt) {
   for (const p of state.projectiles) {
+    if (p.beam) {
+      p.age += dt;
+      continue;  // 当たり判定は発射時に完了済み、視覚のみ減衰
+    }
     if (p.aoe) {
       p.age += dt;
       p.r = (p.age / p.life) * p.targetR;
@@ -719,11 +972,17 @@ function updateProjectiles(dt) {
         if (p.hits.has(e)) continue;
         const dx = e.x - p.x, dy = e.y - p.y;
         if (dx * dx + dy * dy < p.r * p.r) {
-          e.hp -= p.dmg;
+          damageEnemy(e, p.dmg);
           p.hits.add(e);
         }
       }
     } else {
+      // ソクラテス的問答の残光トレイル（過去 6 点を記録）
+      if (p.kind === 'socratic') {
+        if (!p.trail) p.trail = [];
+        p.trail.push({ x: p.x, y: p.y });
+        if (p.trail.length > 6) p.trail.shift();
+      }
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       p.life -= dt;
@@ -732,7 +991,7 @@ function updateProjectiles(dt) {
         if (p.hits.has(e)) continue;
         const dx = e.x - p.x, dy = e.y - p.y;
         if (dx * dx + dy * dy < (e.r + p.r) * (e.r + p.r)) {
-          e.hp -= p.dmg;
+          damageEnemy(e, p.dmg);
           p.hits.add(e);
           if (p.pierce <= 0) { p.life = 0; break; }
           p.pierce--;
@@ -740,7 +999,9 @@ function updateProjectiles(dt) {
       }
     }
   }
-  state.projectiles = state.projectiles.filter(p => p.aoe ? p.age < p.life : p.life > 0);
+  state.projectiles = state.projectiles.filter(p =>
+    p.beam ? p.age < p.life : p.aoe ? p.age < p.life : p.life > 0
+  );
 }
 
 // ============================================================
@@ -763,8 +1024,8 @@ function processDeaths() {
 function updatePlayer(dt) {
   const m = readMove();
   if (m.x || m.y) {
-    state.player.x += m.x * state.player.moveSpeed * dt;
-    state.player.y += m.y * state.player.moveSpeed * dt;
+    state.player.x += m.x * state.player.moveSpeed * moveMul() * dt;
+    state.player.y += m.y * state.player.moveSpeed * moveMul() * dt;
     state.player.facing = m;
   }
   state.player.x = Math.max(20, Math.min(W - 20, state.player.x));
@@ -807,7 +1068,7 @@ function updateOrbs(dt) {
 // ============================================================
 
 function gainXp(v) {
-  state.xp += v;
+  state.xp += v * xpMul();
   let leveled = false;
   while (state.xp >= state.xpNext) {
     state.xp -= state.xpNext;
@@ -843,12 +1104,23 @@ function buildChoiceList() {
   const ownedWeapons = Object.keys(state.weapons).filter(k => state.weapons[k] > 0);
 
   const weaponPool = [];
+  const unownedWeapons = [];
   for (const id in WEAPONS) {
     const w = WEAPONS[id];
     const lv = weaponLv(id);
     if (lv === 0 && ownedWeapons.length >= 3) continue;
     if (lv >= w.maxLv) continue;
-    weaponPool.push({ kind: 'weapon', id, nextLv: lv + 1 });
+    const entry = { kind: 'weapon', id, nextLv: lv + 1 };
+    weaponPool.push(entry);
+    if (lv === 0) unownedWeapons.push(entry);
+  }
+
+  // 未所持武器が pool にあれば 1 つを優先的に offer に含める
+  // （build choice の発見性を上げる：パッシブだけ並んで武器が見えない事故を防ぐ）
+  if (unownedWeapons.length > 0) {
+    const pick = unownedWeapons[Math.floor(Math.random() * unownedWeapons.length)];
+    out.push(pick);
+    weaponPool.splice(weaponPool.indexOf(pick), 1);
   }
 
   const passivePool = [];
@@ -857,12 +1129,6 @@ function buildChoiceList() {
     const lv = passiveLv(id);
     if (lv >= p.maxLv) continue;
     passivePool.push({ kind: 'passive', id, nextLv: lv + 1 });
-  }
-
-  // 武器を 1 つも持っていなければ、必ず武器を 1 つ含める
-  if (ownedWeapons.length === 0 && weaponPool.length > 0) {
-    shuffle(weaponPool);
-    out.push(weaponPool.shift());
   }
 
   const rest = weaponPool.concat(passivePool);
@@ -1086,6 +1352,18 @@ function frame(now) {
     updateProjectiles(dt);
     processDeaths();
     updateOrbs(dt);
+    // 呼吸：一定間隔で HP +1（最大値まで）
+    const ki = kokyuInterval();
+    if (isFinite(ki)) {
+      state.healTimer += dt;
+      if (state.healTimer >= ki) {
+        state.healTimer = 0;
+        if (state.player.hp < state.player.maxHp) {
+          state.player.hp += 1;
+          refreshHud();
+        }
+      }
+    }
   }
 
   // blink timer (always tick, not just play)
@@ -1102,12 +1380,41 @@ function frame(now) {
 }
 
 function draw() {
-  // bg
-  ctx.fillStyle = '#0f1114';
+  const k = worldLight();
+  // bg：暗黒 → 紫が滲む夜明け前 → 月光に染まる白寄り
+  // 3 段階を線形補間（0..0.4 / 0.4..0.8 / 0.8..1）
+  let bgR, bgG, bgB;
+  if (k < 0.4) {
+    const u = k / 0.4;
+    bgR = 15 + u * 8;   // 15 → 23
+    bgG = 17 + u * 6;   // 17 → 23
+    bgB = 20 + u * 14;  // 20 → 34
+  } else if (k < 0.8) {
+    const u = (k - 0.4) / 0.4;
+    bgR = 23 + u * 50;
+    bgG = 23 + u * 50;
+    bgB = 34 + u * 70;
+  } else {
+    const u = (k - 0.8) / 0.2;
+    bgR = 73 + u * 110;
+    bgG = 73 + u * 115;
+    bgB = 104 + u * 110;
+  }
+  ctx.fillStyle = `rgb(${bgR|0},${bgG|0},${bgB|0})`;
   ctx.fillRect(0, 0, W, H);
 
-  // subtle grid (chamber feel)
-  ctx.strokeStyle = 'rgba(184, 164, 212, 0.04)';
+  // 月光ヴィネット（中央が明るく）— 進行と共に強くなる
+  if (k > 0.2) {
+    const grad = ctx.createRadialGradient(W/2, H/2, 50, W/2, H/2, Math.max(W, H) * 0.7);
+    grad.addColorStop(0, `rgba(244, 241, 234, ${(k - 0.2) * 0.25})`);
+    grad.addColorStop(1, 'rgba(244, 241, 234, 0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // subtle grid (chamber feel) — 光が増すほど薄くする
+  const gridAlpha = 0.04 * (1 - k * 0.7);
+  ctx.strokeStyle = `rgba(184, 164, 212, ${gridAlpha})`;
   ctx.lineWidth = 1;
   for (let x = 0; x < W; x += 40) {
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
@@ -1156,6 +1463,23 @@ function draw() {
 
   // projectiles
   for (const p of state.projectiles) {
+    if (p.beam) {
+      const fade = 1 - p.age / p.life;
+      ctx.strokeStyle = `rgba(244, 241, 234, ${fade * 0.95})`;
+      ctx.lineWidth = 1 + fade * 2.5;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x + p.dirX * p.length, p.y + p.dirY * p.length);
+      ctx.stroke();
+      // 二重線で芯を強調
+      ctx.strokeStyle = `rgba(244, 241, 234, ${fade * 0.4})`;
+      ctx.lineWidth = 4 + fade * 3;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x + p.dirX * p.length, p.y + p.dirY * p.length);
+      ctx.stroke();
+      continue;
+    }
     if (p.aoe) {
       if (p.kind === 'bensho') {
         ctx.strokeStyle = 'rgba(244, 215, 126, 0.85)';
@@ -1170,15 +1494,25 @@ function draw() {
         ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.stroke();
       }
     } else if (p.kind === 'socratic') {
+      // 残光トレイル
+      if (p.trail) {
+        for (let i = 0; i < p.trail.length; i++) {
+          const tp = p.trail[i];
+          const k = i / p.trail.length;
+          ctx.fillStyle = `rgba(244, 215, 126, ${0.05 + k * 0.18})`;
+          ctx.beginPath(); ctx.arc(tp.x, tp.y, p.r * (0.5 + k * 0.6), 0, Math.PI * 2); ctx.fill();
+        }
+      }
       ctx.fillStyle = '#f4d77e';
       ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = 'rgba(244, 215, 126, 0.3)';
-      ctx.beginPath(); ctx.arc(p.x, p.y, p.r * 1.8, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(244, 215, 126, 0.32)';
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r * 1.9, 0, Math.PI * 2); ctx.fill();
     } else {
       ctx.fillStyle = '#cfc7b4';
       ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
     }
   }
+
 }
 
 // ============================================================
@@ -1212,10 +1546,12 @@ function showResult(win) {
   modal.className = 'modal result' + (win ? ' win' : '');
   modal.innerHTML = '';
   const h2 = document.createElement('h2');
-  h2.textContent = win ? '生き延びた' : '煩悩に呑まれた';
+  h2.textContent = win ? '世界を見間違えていた' : '煩悩に呑まれた';
   modal.appendChild(h2);
   const lead = document.createElement('div'); lead.className = 'lead';
-  lead.textContent = win ? '一分間、ぼぶは黙考し続けた' : 'もう一度、問い直そう';
+  lead.textContent = win
+    ? '払っていたのは、煩悩ではなかったのかもしれない'
+    : 'もう一度、問い直そう';
   modal.appendChild(lead);
 
   const stats = document.createElement('div'); stats.className = 'stats';
@@ -1226,7 +1562,7 @@ function showResult(win) {
   }
   const rows = [
     ['到達 Lv', state.level],
-    ['撃破した煩悩', state.kills],
+    [win ? '見送ったもの' : '撃破した煩悩', state.kills],
     ['進化武器', evoNames.length ? evoNames.join('、') : '—'],
   ];
   for (const [k, v] of rows) {
