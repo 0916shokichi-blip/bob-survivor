@@ -314,7 +314,9 @@ const WEAPONS = {
     glyph: '◯',
     desc: '周囲に響く言葉が、近づく煩悩を払う',
     maxLv: 8,
-    levelDesc: lv => lv === 1 ? '取得：周囲に円形範囲ダメージ' : '範囲 +　ダメージ +',
+    levelDesc: lv => lv === 1 ? '取得：周囲に円形範囲ダメージ' :
+                     lv === 8 ? '響きが極まる、進化準備完了' :
+                     '響きの幅と威力が増す',
   },
   naisei: {
     id: 'naisei',
@@ -322,7 +324,10 @@ const WEAPONS = {
     glyph: '◐',
     desc: '己の周りを巡る内省が、触れた煩悩を消す',
     maxLv: 8,
-    levelDesc: lv => lv === 1 ? '取得：周囲を 1 個の盾が公転' : `数 +${lv === 4 || lv === 7 ? 1 : 0}`,
+    levelDesc: lv => lv === 1 ? '取得：周囲を 1 個の盾が公転' :
+                     lv === 8 ? '巡る思索が極まる、進化準備完了' :
+                     lv === 3 || lv === 6 ? '盾の数が増える' :
+                     '内省の威力が増す',
   },
 };
 
@@ -355,7 +360,28 @@ const EVOLUTIONS = [
     requires: { weapon: 'toi', weaponLv: 8, passive: 'chinmoku', passiveLv: 3 },
     glyph: '?!',
   },
+  {
+    id: 'bensho',
+    name: '弁証法',
+    desc: '正と反が重なり、合となって響く',
+    requires: { weapon: 'kotoba', weaponLv: 8, passive: 'meiseki', passiveLv: 3 },
+    glyph: '∞',
+  },
+  {
+    id: 'kanso',
+    name: '観想',
+    desc: '巡る内省が深まり、世界を静かに照らす',
+    requires: { weapon: 'naisei', weaponLv: 8, passive: 'nintai', passiveLv: 3 },
+    glyph: '◉',
+  },
 ];
+
+// 武器ごとの進化情報（HUD / 結果画面で参照）
+const WEAPON_EVOLUTIONS = {
+  toi: { evoId: 'socratic', evoName: 'ソクラテス的問答' },
+  kotoba: { evoId: 'bensho', evoName: '弁証法' },
+  naisei: { evoId: 'kanso', evoName: '観想' },
+};
 
 // ============================================================
 // State
@@ -603,8 +629,9 @@ function fireToi(lv) {
 }
 
 function fireKotoba(lv) {
-  const radius = (60 + lv * 10) * rangeMul();
-  const dmg = 1 + Math.floor(lv / 2);
+  const evolved = state.evolved.bensho;
+  const radius = (60 + lv * 10) * rangeMul() * (evolved ? 1.4 : 1);
+  const dmg = 1 + Math.floor(lv / 2) + (evolved ? 2 : 0);
   state.projectiles.push({
     x: state.player.x, y: state.player.y,
     aoe: true,
@@ -613,15 +640,17 @@ function fireKotoba(lv) {
     life: 0.32,
     age: 0,
     hits: new Set(),
-    kind: 'kotoba',
+    kind: evolved ? 'bensho' : 'kotoba',
   });
 }
 
 function naiseiOrbits() {
   const lv = weaponLv('naisei');
   if (!lv) return [];
-  const count = 1 + Math.floor(lv / 3);
-  const dist = 44 * rangeMul();
+  const evolved = state.evolved.kanso;
+  const baseCount = 1 + Math.floor(lv / 3);
+  const count = evolved ? baseCount + 2 : baseCount;
+  const dist = 44 * rangeMul() * (evolved ? 1.3 : 1);
   const out = [];
   for (let i = 0; i < count; i++) {
     const a = state.weaponState.naisei.angle + (Math.PI * 2 * i) / count;
@@ -633,15 +662,17 @@ function naiseiOrbits() {
 function updateNaisei(dt) {
   const lv = weaponLv('naisei');
   if (!lv) return;
-  state.weaponState.naisei.angle += dt * 2.4;
-  const dmg = 1 + Math.floor(lv / 3);
+  const evolved = state.evolved.kanso;
+  state.weaponState.naisei.angle += dt * 2.4 * (evolved ? 1.5 : 1);
+  const dmg = 1 + Math.floor(lv / 3) + (evolved ? 2 : 0);
+  const orbR = evolved ? 11 : 9;
   for (const orb of naiseiOrbits()) {
     for (const e of state.enemies) {
       const dx = e.x - orb.x, dy = e.y - orb.y;
-      if (dx * dx + dy * dy < (e.r + 9) * (e.r + 9)) {
+      if (dx * dx + dy * dy < (e.r + orbR) * (e.r + orbR)) {
         if (!e.naiseiCd || e.naiseiCd <= 0) {
           e.hp -= dmg;
-          e.naiseiCd = 0.35;
+          e.naiseiCd = evolved ? 0.25 : 0.35;
         }
       }
     }
@@ -663,14 +694,15 @@ function updateWeapons(dt) {
       ws.cd = baseCd * cooldownMul();
     }
   }
-  // kotoba
+  // kotoba or bensho
   const kotobaLv = weaponLv('kotoba');
   if (kotobaLv) {
     const ws = state.weaponState.kotoba;
     ws.cd -= dt;
     if (ws.cd <= 0) {
       fireKotoba(kotobaLv);
-      ws.cd = (2.2 - kotobaLv * 0.1) * cooldownMul();
+      const baseCd = state.evolved.bensho ? 0.7 : (2.2 - kotobaLv * 0.1);
+      ws.cd = baseCd * cooldownMul();
     }
   }
   // naisei: orbit, no cooldown
@@ -804,44 +836,37 @@ function eligibleEvolutions() {
 }
 
 function buildChoiceList() {
-  // If an evolution is eligible, prioritize it (always offered as 1 of 3).
   const evos = eligibleEvolutions();
-  const pool = [];
+  const out = [];
+  if (evos.length > 0) out.push({ kind: 'evo', evo: evos[0] });
 
-  // Evolutions
-  for (const evo of evos) {
-    pool.push({ kind: 'evo', evo });
-  }
-
-  // Weapons (new or upgrade)
   const ownedWeapons = Object.keys(state.weapons).filter(k => state.weapons[k] > 0);
+
+  const weaponPool = [];
   for (const id in WEAPONS) {
     const w = WEAPONS[id];
     const lv = weaponLv(id);
-    if (lv === 0 && ownedWeapons.length >= 3 && !state.weapons[id]) continue;
+    if (lv === 0 && ownedWeapons.length >= 3) continue;
     if (lv >= w.maxLv) continue;
-    pool.push({ kind: 'weapon', id, nextLv: lv + 1 });
+    weaponPool.push({ kind: 'weapon', id, nextLv: lv + 1 });
   }
 
-  // Passives
+  const passivePool = [];
   for (const id in PASSIVES) {
     const p = PASSIVES[id];
     const lv = passiveLv(id);
     if (lv >= p.maxLv) continue;
-    pool.push({ kind: 'passive', id, nextLv: lv + 1 });
+    passivePool.push({ kind: 'passive', id, nextLv: lv + 1 });
   }
 
-  // Always include heal as filler
-  if (state.player.hp < state.player.maxHp) {
-    pool.push({ kind: 'heal' });
+  // 武器を 1 つも持っていなければ、必ず武器を 1 つ含める
+  if (ownedWeapons.length === 0 && weaponPool.length > 0) {
+    shuffle(weaponPool);
+    out.push(weaponPool.shift());
   }
 
-  // pick: at most 1 evo + random others, total 3
-  const out = [];
-  if (evos.length > 0) {
-    out.push({ kind: 'evo', evo: evos[0] });
-  }
-  const rest = pool.filter(c => c.kind !== 'evo');
+  const rest = weaponPool.concat(passivePool);
+  if (state.player.hp < state.player.maxHp) rest.push({ kind: 'heal' });
   shuffle(rest);
   while (out.length < 3 && rest.length) out.push(rest.shift());
   return out;
@@ -964,10 +989,11 @@ function refreshHud() {
   for (const id in state.weapons) {
     const lv = state.weapons[id]; if (!lv) continue;
     const w = WEAPONS[id];
+    const evoInfo = WEAPON_EVOLUTIONS[id];
+    const isEvolved = evoInfo && state.evolved[evoInfo.evoId];
     const item = document.createElement('div');
-    const isEvolved = id === 'toi' && state.evolved.socratic;
     item.className = 'item' + (isEvolved ? ' evolved' : '');
-    item.innerHTML = `<span class="name">${isEvolved ? 'ソクラテス的問答' : w.name}</span> <span class="lv">Lv ${lv}</span>`;
+    item.innerHTML = `<span class="name">${isEvolved ? evoInfo.evoName : w.name}</span> <span class="lv">Lv ${lv}</span>`;
     buildEl.appendChild(item);
   }
   for (const id in state.passives) {
@@ -1101,12 +1127,22 @@ function draw() {
   // enemies
   for (const e of state.enemies) drawBonnou(e);
 
-  // naisei orbs
+  // naisei orbs (evolves to 観想)
+  const kanso = state.evolved.kanso;
   for (const orb of naiseiOrbits()) {
-    ctx.fillStyle = 'rgba(184, 164, 212, 0.85)';
-    ctx.beginPath(); ctx.arc(orb.x, orb.y, 6, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = 'rgba(184, 164, 212, 0.35)';
-    ctx.beginPath(); ctx.arc(orb.x, orb.y, 9, 0, Math.PI * 2); ctx.stroke();
+    if (kanso) {
+      ctx.fillStyle = 'rgba(244, 215, 126, 0.9)';
+      ctx.beginPath(); ctx.arc(orb.x, orb.y, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(244, 215, 126, 0.5)';
+      ctx.beginPath(); ctx.arc(orb.x, orb.y, 11, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = 'rgba(244, 215, 126, 0.2)';
+      ctx.beginPath(); ctx.arc(orb.x, orb.y, 15, 0, Math.PI * 2); ctx.stroke();
+    } else {
+      ctx.fillStyle = 'rgba(184, 164, 212, 0.85)';
+      ctx.beginPath(); ctx.arc(orb.x, orb.y, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(184, 164, 212, 0.35)';
+      ctx.beginPath(); ctx.arc(orb.x, orb.y, 9, 0, Math.PI * 2); ctx.stroke();
+    }
   }
 
   // player
@@ -1121,9 +1157,18 @@ function draw() {
   // projectiles
   for (const p of state.projectiles) {
     if (p.aoe) {
-      ctx.strokeStyle = 'rgba(184, 164, 212, 0.7)';
-      ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.stroke();
+      if (p.kind === 'bensho') {
+        ctx.strokeStyle = 'rgba(244, 215, 126, 0.85)';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.stroke();
+        ctx.strokeStyle = 'rgba(244, 215, 126, 0.45)';
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r * 0.62, 0, Math.PI * 2); ctx.stroke();
+      } else {
+        ctx.strokeStyle = 'rgba(184, 164, 212, 0.7)';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.stroke();
+      }
     } else if (p.kind === 'socratic') {
       ctx.fillStyle = '#f4d77e';
       ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
@@ -1174,10 +1219,15 @@ function showResult(win) {
   modal.appendChild(lead);
 
   const stats = document.createElement('div'); stats.className = 'stats';
+  const evoNames = [];
+  for (const id in WEAPON_EVOLUTIONS) {
+    const info = WEAPON_EVOLUTIONS[id];
+    if (state.evolved[info.evoId]) evoNames.push(info.evoName);
+  }
   const rows = [
     ['到達 Lv', state.level],
     ['撃破した煩悩', state.kills],
-    ['進化武器', state.evolved.socratic ? 'ソクラテス的問答' : '—'],
+    ['進化武器', evoNames.length ? evoNames.join('、') : '—'],
   ];
   for (const [k, v] of rows) {
     const a = document.createElement('div'); a.textContent = k;
