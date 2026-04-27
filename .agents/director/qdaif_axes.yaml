@@ -1,0 +1,80 @@
+# bob-survivor QDAIF 評価軸
+# 機能追加・バランス調整・新武器追加・新進化追加の評価。
+# bobrain / philosophy-chat と異なり、productive_friction が最大重み（ゲームのため）。
+
+axes:
+  - id: chikou_gouitsu
+    label: 知行合一（行動と認識の統合）
+    description: |
+      bob-survivor の核中の核。「思想を文字で説明する代わりに、操作で体験させる」
+      が成立しているか。テキスト説明・チュートリアル・操作ガイドへの逃避は違反。
+    weight: 1.5  # ゲームでは最重要級
+    examples:
+      high: |
+        worldLight() 経由で進行率 k を視覚に反映し、敵のフード透過とぼぶシルエットの
+        浮上を「言葉なしで」プレイヤーに気付かせる。撃破漢字の k<0.5 と k≥0.5 の切替。
+      low: |
+        プレイ開始時に「このゲームは煩悩を通じて自分自身を見るゲームです」と
+        テキストで説明する。チュートリアルで思想を解説する。
+
+  - id: paradigm_shift
+    label: パラダイムシフト（変容的体験）
+    description: |
+      プレイ後、プレイヤーの「ゲーム / 敵 / 自分の認識」が不可逆に変化するか。
+      「楽しかった」「気持ちよかった」止まりなら平均値、「敵が自分だった」と
+      気付かせたら成功。
+    weight: 1.3
+    examples:
+      high: |
+        プレイヤーが「最後の敵、ぼぶに似てなかった？」「勝ったのか負けたのかよく
+        わからない」と自発的に言う。Vampire Survivors と同じ操作なのに、別の体験。
+      low: |
+        「ビルドが面白い」「サクサクで楽しい」のみ。Vampire Survivors の
+        オマージュとして消費される。
+
+  - id: productive_friction
+    label: 生産的な摩擦（Productive Friction）
+    description: |
+      ゲームの「気持ちよさ」を入口にしつつ、終盤で違和感を作るバランス。
+      気持ちよさが完全に勝つと変容が起きず、違和感が早く出すぎるとプレイヤーが離脱。
+      序盤の手応え（敵 HP=1 で武器 Lv1 で 1 撃）と終盤のテーマ反転の両立。
+    weight: 1.4  # bob-survivor の核
+    examples:
+      high: |
+        序盤は瞋（明確な敵）でビルド構築の快感を提供、k>0.45 でフードが透け始め、
+        k>0.6 で内側にぼぶ的シルエット。撃破漢字の意味が反転。プレイヤーは
+        違和感を抱えつつ最後まで進む。
+      low: |
+        最初から最後まで気持ちよく敵を吹き飛ばすだけ。違和感ゼロ。
+        または最初から思想テーマが前面に出てゲームとして成立しない。
+
+  - id: diversity_niche
+    label: QDAIF 多様性（Behavioral Niche Exploration）
+    description: |
+      Vampire Survivors / 20 Minutes Till Dawn / Brotato 等の確率分布の
+      真ん中に落ちていないか。「ローグライト」「弾幕」のジャンル平均からの逸脱。
+    weight: 1.0
+    examples:
+      high: |
+        ジャンル文法（自動戦闘 / ビルド構築 / 1 分耐久 / 武器進化）を借りつつ、
+        テーマ（煩悩 → 自己 / worldLight による視覚反転）が完全独自。哲学チャットと
+        同 IP（ぼぶ）でクロスオーバーする初の事例。
+      low: |
+        既存 Vampire Survivors クローンと差別化要素ゼロ。
+        ぼぶをただのスキンとして使っている。
+
+# スコアリングルール
+scoring:
+  threshold_pass: 14
+  threshold_pivot: 18
+
+# Hard constraints（絶対条件）
+hard_constraints:
+  - rule: "新規視覚要素は worldLight() 経由で進行率 k に紐付けること"
+    rationale: "k と無関係な装飾は思想と切れている = 平均値への滑落"
+  - rule: "テキストで思想を説明しない（チュートリアル / 操作ガイド / LP 全て）"
+    rationale: "知行合一の核 / Procedural Rhetoric 違反"
+  - rule: "新武器・新パッシブ・新進化は修練・思索・観想の語彙体系から命名"
+    rationale: "炎 / 氷 / 雷など属性ベースは分類違反"
+  - rule: "新敵は三毒（瞋・貪・痴）のいずれかに位置付けるか、超える理由を vision.md に明文化"
+    rationale: "安易な追加は意味論を毀損"

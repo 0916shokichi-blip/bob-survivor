@@ -34,6 +34,17 @@
 - カラー: 背景 `#0f1114`、テキスト `#ece6d6`、アクセント `#b8a4d4`（内省の紫）、進化フラッシュ `#f4d77e`、煩悩 `#1a0f14` + 赤目 `#c44a4a`
 - 音は Web Audio で手続き生成（ブランド指針通り mp3/ogg は置かない）
 
+## L0 Taste Layer（評価関数の正本）
+
+新武器・新進化・新敵・バランス調整・視覚要素追加の判断は `.agents/director/` を参照する：
+
+- `.agents/director/vision.md` — 提供すべき変容的体験（敵だと思っていたものが自分自身だったと気付かせる）
+- `.agents/director/philosophy_os.md` — 横断 OS への参照 + bob-survivor 固有 5 観点（worldLight() 経由 / 三毒分類 / 修練語彙 等）
+- `.agents/director/qdaif_axes.yaml` — 4 軸スコアリング + 4 つの hard constraints（worldLight 経由 / テキスト説明禁止 / 修練語彙 / 三毒分類）
+- `.agents/director/anti_patterns.md` — 9 カテゴリの平凡化シグナル（テキスト説明逃避 / VS クローン化 / テーマ反転弱体化 等）
+
+平凡化チェックは subagent `gamma-contrarian-ja`（明示起動）で叩く。詳細はアプリツリー wiki [[自律型開発スタジオの5層モデル]] 参照。
+
 ## 現状（2026-04-26）
 
 - 進化 3 種実装完了。**未プレイテスト**
