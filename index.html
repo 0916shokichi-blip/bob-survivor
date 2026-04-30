@@ -339,6 +339,15 @@ const WEAPONS = {
                      lv === 8 ? '視線が極まる' :
                      '頻度↑　ダメージ↑',
   },
+  nenge: {
+    id: 'nenge',
+    name: '拈華',
+    glyph: '花',
+    desc: '向いた方向に華をかかげ、近づく煩悩をしばし止める',
+    maxLv: 5,
+    levelDesc: lv => lv === 1 ? '取得：扇形の停止フィールド' :
+                     `射程 +　停止時間 +`,
+  },
 };
 
 const PASSIVES = {
@@ -383,6 +392,42 @@ const PASSIVES = {
     desc: 'すべての武器のダメージが上がる',
     maxLv: 3,
     levelDesc: lv => `全武器ダメージ +${lv}`,
+  },
+  fudo: {
+    id: 'fudo', name: '不動', glyph: '石',
+    desc: '立ち止まっている間、被弾をすり抜けることがある',
+    maxLv: 3,
+    levelDesc: lv => `静止時 被弾 ${lv * 25}% で無効`,
+  },
+  kanpo: {
+    id: 'kanpo', name: '緩歩', glyph: '歩',
+    desc: '足取りが緩む。代わりに間合いが詰まり、攻撃も短く',
+    maxLv: 3,
+    levelDesc: lv => `移動 -${lv * 10}%　攻撃間隔 -${lv * 10}%`,
+  },
+  yohaku: {
+    id: 'yohaku', name: '余白', glyph: '空',
+    desc: '近くに煩悩がいない時、一撃が重くなる',
+    maxLv: 3,
+    levelDesc: lv => `周囲に煩悩 0 で 全ダメ +${lv * 30}%`,
+  },
+  seiza: {
+    id: 'seiza', name: '静坐', glyph: '座',
+    desc: '被弾後、立ち直りが長くなる',
+    maxLv: 3,
+    levelDesc: lv => `被ダメ間隔 +${(lv * 0.15).toFixed(2)}s`,
+  },
+  kekka: {
+    id: 'kekka', name: '結跏', glyph: '坐',
+    desc: '静止していると、内省の巡りが速くなる',
+    maxLv: 3,
+    levelDesc: lv => `静止 0.6s 以上で 内省の速度 +${lv * 25}%`,
+  },
+  ichigo: {
+    id: 'ichigo', name: '一期一会', glyph: '会',
+    desc: '一度払った三毒は、二度目から倍に効く',
+    maxLv: 1,
+    levelDesc: lv => '既出の三毒へのダメ ×2',
   },
 };
 
@@ -460,6 +505,7 @@ function newState() {
       kotoba: { cd: 0 },
       naisei: { angle: 0 },
       kansatsu: { cd: 0.6 },  // ゲーム開始直後にいきなり撃たない
+      nenge: { cd: 1.5 },     // 拈華も序盤に連発しない
     },
     level: 1,
     xp: 0,
@@ -467,6 +513,8 @@ function newState() {
     spawnTimer: 0,
     spawnInterval: 1.0,
     healTimer: 0,             // 呼吸パッシブ用の蓄積タイマー
+    stillTime: 0,             // 不動・結跏：移動していない継続秒数
+    encounteredTypes: new Set(), // 一期一会：一度撃破した三毒の種類
     kills: 0,
     pendingLevels: 0,
   };
@@ -660,6 +708,16 @@ function drawBonnou(e) {
     ctx.ellipse(e.x, e.y, w + 2 + (1 - f) * 4, h + 2 + (1 - f) * 4, 0, 0, Math.PI * 2);
     ctx.stroke();
   }
+
+  // 拈華の停止：足元に淡い円
+  if (e.stunUntil && state.elapsed < e.stunUntil) {
+    const remain = Math.min(1, (e.stunUntil - state.elapsed) / 1.0);
+    ctx.strokeStyle = `rgba(244, 241, 234, ${remain * 0.30})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.ellipse(e.x, e.y + h * 0.7, w * 0.9, w * 0.32, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
 }
 
 // ============================================================
@@ -669,20 +727,26 @@ function drawBonnou(e) {
 function passiveLv(id) { return state.passives[id] || 0; }
 function weaponLv(id) { return state.weapons[id] || 0; }
 
-// ダメージ + 命中フラッシュを 1 箇所に集約
+// ダメージ + 命中フラッシュを 1 箇所に集約。余白・一期一会の倍率はここに集約する
 function damageEnemy(e, amount) {
-  e.hp -= amount;
+  let mult = yohakuMul();
+  if (passiveLv('ichigo') && state.encounteredTypes.has(e.type)) {
+    mult *= 2;
+  }
+  e.hp -= amount * mult;
   e.hitFlash = 0.18;
 }
 
 function cooldownMul() {
-  return 1 - 0.08 * passiveLv('chinmoku');
+  // 沈黙 + 緩歩
+  return (1 - 0.08 * passiveLv('chinmoku')) * (1 - 0.10 * passiveLv('kanpo'));
 }
 function rangeMul() {
   return 1 + 0.12 * passiveLv('meiseki');
 }
 function moveMul() {
-  return 1 + 0.12 * passiveLv('ayumi');
+  // 歩み + 緩歩（緩歩はマイナス）
+  return (1 + 0.12 * passiveLv('ayumi')) * (1 - 0.10 * passiveLv('kanpo'));
 }
 function xpMul() {
   return 1 + 0.20 * passiveLv('kizuki');
@@ -695,6 +759,25 @@ function kokyuInterval() {
   const lv = passiveLv('kokyu');
   if (!lv) return Infinity;
   return 7 - lv * 0.9;
+}
+// 静坐：被ダメ後の iframe 持続を伸ばす（基本 0.9s）
+function iframeDuration() {
+  return 0.9 + 0.15 * passiveLv('seiza');
+}
+// 不動：「立ち止まっている」と判定する閾値
+function isStill() {
+  return state.stillTime > 0.15;
+}
+// 余白：周囲 100px に煩悩がいなければ全ダメ倍率
+function yohakuMul() {
+  const lv = passiveLv('yohaku');
+  if (!lv) return 1;
+  const r2 = 100 * 100;
+  for (const e of state.enemies) {
+    const dx = e.x - state.player.x, dy = e.y - state.player.y;
+    if (dx * dx + dy * dy < r2) return 1;
+  }
+  return 1 + 0.30 * lv;
 }
 
 // ============================================================
@@ -760,13 +843,15 @@ function updateEnemies(dt) {
   }
 
   for (const e of state.enemies) {
+    e.wobble += dt * 6;
+    if (e.hitFlash > 0) e.hitFlash -= dt;
+    // 拈華：停止中の敵は動かない
+    if (e.stunUntil && state.elapsed < e.stunUntil) continue;
     const dx = state.player.x - e.x;
     const dy = state.player.y - e.y;
     const d = Math.hypot(dx, dy) || 1;
     e.x += (dx / d) * e.speed * dt;
     e.y += (dy / d) * e.speed * dt;
-    e.wobble += dt * 6;
-    if (e.hitFlash > 0) e.hitFlash -= dt;
   }
 
   // separation (very light, prevents pile up)
@@ -882,6 +967,28 @@ function fireKansatsu(lv) {
   });
 }
 
+// 拈華：向いた方向に扇形の停止フィールドを置く。ダメージなし、敵を一定時間止める
+function fireNenge(lv) {
+  let dx = state.player.facing.x, dy = state.player.facing.y;
+  if (!dx && !dy) { dx = 1; dy = 0; }
+  const d = Math.hypot(dx, dy) || 1;
+  const radius = (90 + lv * 18) * rangeMul();
+  const halfAngle = Math.PI * 0.34; // 約 ±60 度の扇
+  const stunDur = 0.9 + lv * 0.35;
+  state.projectiles.push({
+    x: state.player.x, y: state.player.y,
+    nenge: true,
+    dirX: dx / d, dirY: dy / d,
+    radius,
+    halfAngle,
+    stunDur,
+    age: 0,
+    life: 0.55,
+    applied: false,
+    kind: 'nenge',
+  });
+}
+
 function naiseiOrbits() {
   const lv = weaponLv('naisei');
   if (!lv) return [];
@@ -901,7 +1008,13 @@ function updateNaisei(dt) {
   const lv = weaponLv('naisei');
   if (!lv) return;
   const evolved = state.evolved.kanso;
-  state.weaponState.naisei.angle += dt * 2.4 * (evolved ? 1.5 : 1);
+  let omega = 2.4 * (evolved ? 1.5 : 1);
+  // 結跏：0.6s 以上静止していれば角速度上昇
+  const kekkaLv = passiveLv('kekka');
+  if (kekkaLv && state.stillTime > 0.6) {
+    omega *= 1 + 0.25 * kekkaLv;
+  }
+  state.weaponState.naisei.angle += dt * omega;
   const dmg = 1 + Math.floor(lv / 3) + (evolved ? 2 : 0) + dmgBonus();
   const orbR = evolved ? 11 : 9;
   for (const orb of naiseiOrbits()) {
@@ -956,6 +1069,17 @@ function updateWeapons(dt) {
       ws.cd = baseCd * cooldownMul();
     }
   }
+  // nenge: 周期的に向いた方向へ扇形の停止フィールド
+  const nengeLv = weaponLv('nenge');
+  if (nengeLv) {
+    const ws = state.weaponState.nenge;
+    ws.cd -= dt;
+    if (ws.cd <= 0) {
+      fireNenge(nengeLv);
+      const baseCd = 4.5 - nengeLv * 0.35;  // Lv1: 4.15 → Lv5: 2.75
+      ws.cd = baseCd * cooldownMul();
+    }
+  }
 }
 
 function updateProjectiles(dt) {
@@ -963,6 +1087,26 @@ function updateProjectiles(dt) {
     if (p.beam) {
       p.age += dt;
       continue;  // 当たり判定は発射時に完了済み、視覚のみ減衰
+    }
+    if (p.nenge) {
+      p.age += dt;
+      // 出現時に 1 度だけ範囲内の敵に stun を付与
+      if (!p.applied) {
+        p.applied = true;
+        const minDot = Math.cos(p.halfAngle);
+        for (const e of state.enemies) {
+          const dx = e.x - p.x, dy = e.y - p.y;
+          const d = Math.hypot(dx, dy);
+          if (d < 1 || d > p.radius) continue;
+          const dot = (dx / d) * p.dirX + (dy / d) * p.dirY;
+          if (dot >= minDot) {
+            const until = state.elapsed + p.stunDur;
+            // 既存の stun より長ければ上書き
+            if (!e.stunUntil || e.stunUntil < until) e.stunUntil = until;
+          }
+        }
+      }
+      continue;
     }
     if (p.aoe) {
       p.age += dt;
@@ -1000,7 +1144,10 @@ function updateProjectiles(dt) {
     }
   }
   state.projectiles = state.projectiles.filter(p =>
-    p.beam ? p.age < p.life : p.aoe ? p.age < p.life : p.life > 0
+    p.nenge ? p.age < p.life :
+    p.beam ? p.age < p.life :
+    p.aoe ? p.age < p.life :
+    p.life > 0
   );
 }
 
@@ -1013,6 +1160,7 @@ function processDeaths() {
   for (const e of state.enemies) {
     if (e.hp <= 0) {
       state.kills++;
+      state.encounteredTypes.add(e.type); // 一期一会：撃破した三毒の種類を記録
       state.orbs.push({ x: e.x, y: e.y, value: e.xp, vx: 0, vy: 0 });
     } else {
       survivors.push(e);
@@ -1027,6 +1175,9 @@ function updatePlayer(dt) {
     state.player.x += m.x * state.player.moveSpeed * moveMul() * dt;
     state.player.y += m.y * state.player.moveSpeed * moveMul() * dt;
     state.player.facing = m;
+    state.stillTime = 0;
+  } else {
+    state.stillTime += dt;
   }
   state.player.x = Math.max(20, Math.min(W - 20, state.player.x));
   state.player.y = Math.max(20, Math.min(H - 20, state.player.y));
@@ -1036,8 +1187,14 @@ function updatePlayer(dt) {
     for (const e of state.enemies) {
       const dx = e.x - state.player.x, dy = e.y - state.player.y;
       if (dx * dx + dy * dy < (e.r + state.player.r) * (e.r + state.player.r)) {
+        // 不動：静止時、Lv * 25% の確率で被弾を無視（短い iframe だけ与える）
+        const fudoLv = passiveLv('fudo');
+        if (fudoLv && isStill() && Math.random() < 0.25 * fudoLv) {
+          state.player.iframeUntil = state.elapsed + 0.3;
+          break;
+        }
         state.player.hp -= 1;
-        state.player.iframeUntil = state.elapsed + 0.9;
+        state.player.iframeUntil = state.elapsed + iframeDuration();
         sfx('hit');
         if (state.player.hp <= 0) gameOver();
         break;
@@ -1493,6 +1650,23 @@ function draw() {
         ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.stroke();
       }
+    } else if (p.kind === 'nenge') {
+      // 扇形の停止フィールド：薄い象牙色で fade
+      const fade = 1 - p.age / p.life;
+      const ang = Math.atan2(p.dirY, p.dirX);
+      ctx.fillStyle = `rgba(244, 241, 234, ${fade * 0.06})`;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.arc(p.x, p.y, p.radius, ang - p.halfAngle, ang + p.halfAngle);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = `rgba(244, 241, 234, ${fade * 0.32})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.arc(p.x, p.y, p.radius, ang - p.halfAngle, ang + p.halfAngle);
+      ctx.closePath();
+      ctx.stroke();
     } else if (p.kind === 'socratic') {
       // 残光トレイル
       if (p.trail) {
