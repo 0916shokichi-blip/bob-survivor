@@ -9,6 +9,7 @@
 ## How to apply
 
 - パス: `~/projects/bob-survivor/index.html`（単一 HTML、`open` で即起動、ビルドなし）
+- **開発開始時は `make dev`**（live-server が http://localhost:8765/ で起動 + 保存自動リロード）。バランス調整・新武器・進化追加は必ずブラウザで動かして確認、Canvas ゲームはコード読みだけで判定不可。停止は `make stop`
 - 武器・パッシブ・進化は `WEAPONS` / `PASSIVES` / `EVOLUTIONS` のテーブルで完結。追加はテーブルだけ触ればよい構造（コード本体に手を入れない）
 - 武器 4（問い・言葉・内省・観察）/ パッシブ 7（沈黙・明晰さ・忍耐・歩み・気づき・呼吸・澄明）/ 進化 3
   - **武器**
