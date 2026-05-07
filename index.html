@@ -1509,38 +1509,48 @@ function initAudio() {
 function sfx(kind) {
   if (!audioCtx) return;
   const t = audioCtx.currentTime;
+  // 要素 11：worldLight で全 sfx を再文脈化。同じ音が文脈で違って聞こえる。
+  // pitch: 終盤は ×1.5（明るく、上方）/ release: 終盤は ×1.4（持続長く、余韻）/ gain: 終盤は ×0.85（軽く）
+  const k = (typeof state !== 'undefined' && state && state.phase === 'play') ? worldLight() : 0;
+  const pitchMul = 1 + k * 0.5;
+  const releaseMul = 1 + k * 0.4;
+  const gainMul = 1 - k * 0.15;
+  const softWave = k >= 0.5;  // 終盤は square/triangle → sine 系に置換して角を取る
+
   const o = audioCtx.createOscillator();
   const g = audioCtx.createGain();
   o.connect(g); g.connect(audioCtx.destination);
   if (kind === 'shoot') {
-    o.type = 'triangle'; o.frequency.setValueAtTime(620, t);
-    o.frequency.exponentialRampToValueAtTime(360, t + 0.08);
-    g.gain.setValueAtTime(0.04, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
-    o.start(t); o.stop(t + 0.12);
+    o.type = softWave ? 'sine' : 'triangle';
+    o.frequency.setValueAtTime(620 * pitchMul, t);
+    o.frequency.exponentialRampToValueAtTime(360 * pitchMul, t + 0.08 * releaseMul);
+    g.gain.setValueAtTime(0.04 * gainMul, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.1 * releaseMul);
+    o.start(t); o.stop(t + 0.12 * releaseMul);
   } else if (kind === 'hit') {
-    o.type = 'square'; o.frequency.setValueAtTime(220, t);
-    o.frequency.exponentialRampToValueAtTime(80, t + 0.18);
-    g.gain.setValueAtTime(0.07, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
-    o.start(t); o.stop(t + 0.22);
+    o.type = softWave ? 'triangle' : 'square';
+    o.frequency.setValueAtTime(220 * pitchMul, t);
+    o.frequency.exponentialRampToValueAtTime(80 * pitchMul, t + 0.18 * releaseMul);
+    g.gain.setValueAtTime(0.07 * gainMul, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.2 * releaseMul);
+    o.start(t); o.stop(t + 0.22 * releaseMul);
   } else if (kind === 'pickup') {
-    o.type = 'sine'; o.frequency.setValueAtTime(820, t);
-    o.frequency.exponentialRampToValueAtTime(1200, t + 0.06);
-    g.gain.setValueAtTime(0.03, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
-    o.start(t); o.stop(t + 0.1);
+    o.type = 'sine'; o.frequency.setValueAtTime(820 * pitchMul, t);
+    o.frequency.exponentialRampToValueAtTime(1200 * pitchMul, t + 0.06 * releaseMul);
+    g.gain.setValueAtTime(0.03 * gainMul, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.08 * releaseMul);
+    o.start(t); o.stop(t + 0.1 * releaseMul);
   } else if (kind === 'level') {
-    o.type = 'sine'; o.frequency.setValueAtTime(520, t);
-    o.frequency.exponentialRampToValueAtTime(880, t + 0.18);
-    g.gain.setValueAtTime(0.05, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
-    o.start(t); o.stop(t + 0.32);
+    o.type = 'sine'; o.frequency.setValueAtTime(520 * pitchMul, t);
+    o.frequency.exponentialRampToValueAtTime(880 * pitchMul, t + 0.18 * releaseMul);
+    g.gain.setValueAtTime(0.05 * gainMul, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.3 * releaseMul);
+    o.start(t); o.stop(t + 0.32 * releaseMul);
   } else if (kind === 'evolve') {
     const o2 = audioCtx.createOscillator(); const g2 = audioCtx.createGain();
     o2.connect(g2); g2.connect(audioCtx.destination);
     o.type = 'sine'; o2.type = 'sine';
-    o.frequency.setValueAtTime(440, t); o.frequency.exponentialRampToValueAtTime(880, t + 0.4);
-    o2.frequency.setValueAtTime(660, t); o2.frequency.exponentialRampToValueAtTime(1320, t + 0.4);
-    g.gain.setValueAtTime(0.06, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
-    g2.gain.setValueAtTime(0.04, t); g2.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
-    o.start(t); o2.start(t); o.stop(t + 0.55); o2.stop(t + 0.55);
+    o.frequency.setValueAtTime(440 * pitchMul, t); o.frequency.exponentialRampToValueAtTime(880 * pitchMul, t + 0.4 * releaseMul);
+    o2.frequency.setValueAtTime(660 * pitchMul, t); o2.frequency.exponentialRampToValueAtTime(1320 * pitchMul, t + 0.4 * releaseMul);
+    g.gain.setValueAtTime(0.06 * gainMul, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.5 * releaseMul);
+    g2.gain.setValueAtTime(0.04 * gainMul, t); g2.gain.exponentialRampToValueAtTime(0.001, t + 0.5 * releaseMul);
+    o.start(t); o2.start(t); o.stop(t + 0.55 * releaseMul); o2.stop(t + 0.55 * releaseMul);
   }
 }
 
