@@ -192,6 +192,13 @@
     margin: 16px 0 22px;
   }
   .result .stats .v { color: var(--ink); }
+  .result .carry {
+    font-size: 11px;
+    color: var(--dim);
+    letter-spacing: 0.18em;
+    margin: 0 0 22px;
+    opacity: 0.7;
+  }
   .result button.again {
     padding: 10px 22px;
     background: transparent;
@@ -516,8 +523,51 @@ function newState() {
     stillTime: 0,             // 不動・結跏：移動していない継続秒数
     encounteredTypes: new Set(), // 一期一会：一度撃破した三毒の種類
     kills: 0,
+    killsByType: { jin: 0, ton: 0, chi: 0 }, // 三毒別撃破数（lifetime 集計用）
     pendingLevels: 0,
   };
+}
+
+// ============================================================
+// Lifetime — 過去のセッションが背景に滲む（要素 1：データ永続性）
+// ============================================================
+// localStorage に累計を持つ。試合終了時に現セッションの数値を加算。
+// 背景描画には log スケールで滑らかに反映（オーバー演出を避けるため）。
+
+const LIFETIME_KEY = 'bobsurv-lifetime-v1';
+let lifetime = loadLifetime();
+
+function loadLifetime() {
+  try {
+    const raw = localStorage.getItem(LIFETIME_KEY);
+    if (!raw) return { plays: 0, wins: 0, kills: 0, killsByType: { jin: 0, ton: 0, chi: 0 } };
+    const v = JSON.parse(raw);
+    return {
+      plays: v.plays | 0,
+      wins: v.wins | 0,
+      kills: v.kills | 0,
+      killsByType: {
+        jin: v.killsByType?.jin | 0,
+        ton: v.killsByType?.ton | 0,
+        chi: v.killsByType?.chi | 0,
+      },
+    };
+  } catch { return { plays: 0, wins: 0, kills: 0, killsByType: { jin: 0, ton: 0, chi: 0 } }; }
+}
+
+function saveLifetime(win) {
+  lifetime.plays += 1;
+  if (win) lifetime.wins += 1;
+  lifetime.kills += state.kills;
+  lifetime.killsByType.jin += state.killsByType.jin;
+  lifetime.killsByType.ton += state.killsByType.ton;
+  lifetime.killsByType.chi += state.killsByType.chi;
+  try { localStorage.setItem(LIFETIME_KEY, JSON.stringify(lifetime)); } catch {}
+}
+
+// 累計の浸透度（0..1）。10 撃破=0.4 / 100 撃破=0.8 / 316 撃破≈1.0
+function lifetimeTint() {
+  return Math.min(1, Math.log10(lifetime.kills + 1) / 2.5);
 }
 
 // ============================================================
@@ -1160,6 +1210,7 @@ function processDeaths() {
   for (const e of state.enemies) {
     if (e.hp <= 0) {
       state.kills++;
+      if (state.killsByType[e.type] !== undefined) state.killsByType[e.type]++;
       state.encounteredTypes.add(e.type); // 一期一会：撃破した三毒の種類を記録
       state.orbs.push({ x: e.x, y: e.y, value: e.xp, vx: 0, vy: 0 });
     } else {
@@ -1561,9 +1612,12 @@ function draw() {
   ctx.fillRect(0, 0, W, H);
 
   // 月光ヴィネット（中央が明るく）— 進行と共に強くなる
-  if (k > 0.2) {
+  // 累計（lifetimeTint）で開始閾値を前倒しし、過去の見送りが薄く残光する
+  const lt = lifetimeTint();
+  const vignetteStart = 0.2 - lt * 0.15;
+  if (k > vignetteStart) {
     const grad = ctx.createRadialGradient(W/2, H/2, 50, W/2, H/2, Math.max(W, H) * 0.7);
-    grad.addColorStop(0, `rgba(244, 241, 234, ${(k - 0.2) * 0.25})`);
+    grad.addColorStop(0, `rgba(244, 241, 234, ${(k - vignetteStart) * 0.25 + lt * 0.04})`);
     grad.addColorStop(1, 'rgba(244, 241, 234, 0)');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
@@ -1705,12 +1759,14 @@ function startGame() {
 function gameOver() {
   if (state.phase === 'lose' || state.phase === 'win') return;
   state.phase = 'lose';
+  saveLifetime(false);
   showResult(false);
 }
 
 function victory() {
   if (state.phase === 'win' || state.phase === 'lose') return;
   state.phase = 'win';
+  saveLifetime(true);
   showResult(true);
   sfx('evolve');
 }
@@ -1745,6 +1801,14 @@ function showResult(win) {
     stats.appendChild(a); stats.appendChild(b);
   }
   modal.appendChild(stats);
+
+  // 累計（過去の見送り）— 勝利時 + 過去セッションがある時のみ、余白で語る
+  if (win && lifetime.kills > state.kills) {
+    const carry = document.createElement('div');
+    carry.className = 'carry';
+    carry.textContent = `これまでに見送ったもの — ${lifetime.kills}`;
+    modal.appendChild(carry);
+  }
 
   const btn = document.createElement('button');
   btn.className = 'again';
