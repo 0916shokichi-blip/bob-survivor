@@ -682,7 +682,9 @@ function drawBonnou(e) {
   // 中盤以降フードが透けていく（敵の見方が変わる）
   const hoodAlpha = Math.max(0.32, 1 - Math.max(0, (k - 0.45) / 0.55) * 0.6);
   // 終盤に内側のシルエットが「ぼぶに似た形」として浮かび上がる
-  const innerReveal = Math.max(0, (k - 0.6) / 0.4); // 0.6 から 0..1
+  // 過去セッションがあると浮上開始が微前倒し（要素 10：L1 行為の記憶、テンポだけ変化）
+  const innerStart = lifetime.plays > 0 ? 0.54 : 0.6;
+  const innerReveal = Math.max(0, (k - innerStart) / (1 - innerStart));
   const t = e.wobble;
   const baseW = 14 + (type.rMod || 0);
   const w = baseW + Math.sin(t) * 1.5;
@@ -1779,9 +1781,15 @@ function showResult(win) {
   h2.textContent = win ? '世界を見間違えていた' : '煩悩に呑まれた';
   modal.appendChild(h2);
   const lead = document.createElement('div'); lead.className = 'lead';
-  lead.textContent = win
-    ? '払っていたのは、煩悩ではなかったのかもしれない'
-    : 'もう一度、問い直そう';
+  // 要素 10：L3 不在への反応。2 回目以降の勝利は接頭で「また、」を滲ませる
+  // 核フレーズ「払っていたのは…」は維持、トーンだけ付加
+  if (win) {
+    lead.textContent = lifetime.wins >= 2
+      ? 'また、払っていたのは煩悩ではなかったのかもしれない'
+      : '払っていたのは、煩悩ではなかったのかもしれない';
+  } else {
+    lead.textContent = 'もう一度、問い直そう';
+  }
   modal.appendChild(lead);
 
   const stats = document.createElement('div'); stats.className = 'stats';
