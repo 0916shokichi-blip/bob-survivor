@@ -524,6 +524,7 @@ function newState() {
     encounteredTypes: new Set(), // 一期一会：一度撃破した三毒の種類
     kills: 0,
     killsByType: { jin: 0, ton: 0, chi: 0 }, // 三毒別撃破数（lifetime 集計用）
+    bowUntil: 0, // 要素 5 強化：撃破直後の頭下げ演出タイマー
     pendingLevels: 0,
   };
 }
@@ -575,8 +576,24 @@ function lifetimeTint() {
 // ============================================================
 
 function drawBob(x, y, scale, blinking, focused) {
-  const s = scale;
-  const left = x - 16 * s, top = y - 16 * s;
+  // 要素 5 強化：キャラ行動パターン = 哲学表現
+  // - 静止 1 秒以上 = 佇み（極小縮み + 微下降）
+  // - 撃破直後 0.25s = 頭下げ（さらに下降 + 縮み）
+  let yOffset = 0;
+  let sMul = 1;
+  if (state.phase === 'play') {
+    if (state.bowUntil && state.elapsed < state.bowUntil) {
+      const p = (state.bowUntil - state.elapsed) / 0.25; // 1 → 0
+      yOffset = 1.5 * p;
+      sMul = 1 - 0.03 * p;
+    } else if (state.stillTime > 1.0) {
+      yOffset = 0.5;
+      sMul = 0.985;
+    }
+  }
+  const s = scale * sMul;
+  const yEff = y + yOffset;
+  const left = x - 16 * s, top = yEff - 16 * s;
   const k = state.phase === 'play' || state.phase === 'levelup' ? worldLight() : 0;
 
   // 終盤、ぼぶの周囲に淡い月光ハロー
@@ -606,12 +623,12 @@ function drawBob(x, y, scale, blinking, focused) {
   // inner shadow (face area)
   ctx.fillStyle = '#0a0a0a';
   ctx.beginPath();
-  ctx.ellipse(x, y - 2 * s, 12 * s, 15 * s, 0, 0, Math.PI * 2);
+  ctx.ellipse(x, yEff - 2 * s, 12 * s, 15 * s, 0, 0, Math.PI * 2);
   ctx.fill();
   // eyes（終盤は冴えが強い）
   const eyeIvory = focused || k > 0.6 ? '#f4f1ea' : '#cfc7b4';
   ctx.fillStyle = eyeIvory;
-  const ey = y - 2 * s;
+  const ey = yEff - 2 * s;
   const eyeRy = blinking ? 0.18 : 1.5;
   const eyeRx = 1.5;
   ctx.beginPath();
@@ -1209,9 +1226,11 @@ function updateProjectiles(dt) {
 
 function processDeaths() {
   const survivors = [];
+  let died = 0;
   for (const e of state.enemies) {
     if (e.hp <= 0) {
       state.kills++;
+      died++;
       if (state.killsByType[e.type] !== undefined) state.killsByType[e.type]++;
       state.encounteredTypes.add(e.type); // 一期一会：撃破した三毒の種類を記録
       state.orbs.push({ x: e.x, y: e.y, value: e.xp, vx: 0, vy: 0 });
@@ -1220,6 +1239,8 @@ function processDeaths() {
     }
   }
   state.enemies = survivors;
+  // 要素 5 強化：撃破時に短い頭下げ演出（連続撃破でも上書きで上限あり）
+  if (died > 0) state.bowUntil = state.elapsed + 0.25;
 }
 
 function updatePlayer(dt) {
