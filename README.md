@@ -5,11 +5,22 @@ character-universe 初の **キャラクター横断出演** 事例。
 
 ## 起動
 
+ローカル:
+
 ```sh
 open index.html
+# or: make dev  # live-server + auto-reload (port 8765)
 ```
 
+Web 版: TBD（Vercel デプロイ予定）
+
 ビルド不要、サーバー不要。単一 HTML + Canvas 2D で完結。
+
+## 操作
+
+- PC: WASD / 矢印キー
+- スマホ・タブレット: 左下の仮想スティック（タッチデバイスでのみ表示）
+- 攻撃は自動
 
 ## 仕組み
 

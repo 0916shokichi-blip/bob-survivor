@@ -44,8 +44,10 @@
 
   #stage {
     position: relative;
-    width: min(960px, 100vw);
-    height: min(600px, 100vh);
+    aspect-ratio: 16 / 10;
+    width: min(960px, 100vw, calc(100vh * 1.6));
+    height: auto;
+    max-height: 100vh;
   }
 
   canvas {
@@ -261,6 +263,54 @@
     80%  { opacity: 1; }
     100% { opacity: 0; transform: translate(-50%, -50%); }
   }
+
+  /* Touch controls — auto-show on touch devices only.
+     Single virtual joystick (left-bottom). Auto-combat keeps no fire button. */
+  #touch-controls {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    display: none;
+    z-index: 5;
+  }
+  .touch-active #touch-controls { display: block; }
+  .touch-joystick {
+    position: absolute;
+    left: clamp(18px, 4vw, 36px);
+    bottom: clamp(20px, 4vh, 38px);
+    width: clamp(110px, 28vw, 150px);
+    aspect-ratio: 1;
+    border-radius: 50%;
+    border: 1px solid rgba(184, 164, 212, 0.16);
+    background: rgba(15, 17, 20, 0.32);
+    pointer-events: auto;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .touch-stick {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 42%;
+    aspect-ratio: 1;
+    margin: 0;
+    border-radius: 50%;
+    border: 1px solid rgba(207, 199, 180, 0.28);
+    background: rgba(184, 164, 212, 0.10);
+    transform: translate(-50%, -50%);
+    transition: transform 70ms ease-out;
+  }
+
+  /* Mobile: tighten HUD spacing so it doesn't crowd the joystick area */
+  @media (pointer: coarse) {
+    .hud-top { font-size: 12px; top: 10px; left: 12px; right: 12px; }
+    .timer { font-size: 16px; }
+    .build { top: 38px; left: 12px; max-width: 180px; font-size: 10px; }
+    .modal { padding: 22px 24px; }
+    .choice { padding: 12px 14px; min-height: 52px; }
+    .title-screen .title { font-size: 28px; letter-spacing: 0.24em; }
+  }
 </style>
 </head>
 <body>
@@ -286,6 +336,12 @@
 
     <div class="overlay" id="overlay">
       <div class="modal" id="modal"></div>
+    </div>
+
+    <div id="touch-controls">
+      <div class="touch-joystick" id="touch-joystick">
+        <div class="touch-stick" id="touch-stick"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -476,6 +532,78 @@ window.addEventListener('keydown', e => {
   if (['arrowup','arrowdown','arrowleft','arrowright',' '].includes(e.key.toLowerCase())) e.preventDefault();
 });
 window.addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
+
+// Touch input — populated by virtual joystick (mobile / tablet).
+// active=true when stick is past the deadzone. {x,y} are normalized [-1, 1].
+const touchInput = { x: 0, y: 0, active: false };
+
+function isTouchDevice() {
+  return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+}
+
+function setupTouchControls() {
+  if (!isTouchDevice()) return;
+  document.body.classList.add('touch-active');
+  const joy = document.getElementById('touch-joystick');
+  const stick = document.getElementById('touch-stick');
+  if (!joy || !stick) return;
+  let pid = null;
+  let baseX = 0, baseY = 0, radius = 0;
+  const deadzone = 0.14;
+
+  function reset() {
+    pid = null;
+    stick.style.transform = 'translate(-50%, -50%)';
+    touchInput.active = false;
+    touchInput.x = 0; touchInput.y = 0;
+  }
+
+  function update(cx, cy) {
+    let dx = cx - baseX, dy = cy - baseY;
+    const mag = Math.hypot(dx, dy);
+    const clampedMag = Math.min(mag, radius);
+    if (mag > 0) {
+      const k = clampedMag / mag;
+      dx *= k; dy *= k;
+    }
+    stick.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+    const nMag = clampedMag / radius;
+    if (nMag < deadzone) {
+      touchInput.active = false;
+      touchInput.x = 0; touchInput.y = 0;
+    } else {
+      const ang = Math.atan2(dy, dx);
+      touchInput.active = true;
+      touchInput.x = Math.cos(ang);
+      touchInput.y = Math.sin(ang);
+    }
+  }
+
+  joy.addEventListener('pointerdown', (e) => {
+    if (pid !== null) return;
+    pid = e.pointerId;
+    const rect = joy.getBoundingClientRect();
+    baseX = rect.left + rect.width / 2;
+    baseY = rect.top + rect.height / 2;
+    radius = rect.width / 2;
+    try { joy.setPointerCapture(e.pointerId); } catch (_) {}
+    update(e.clientX, e.clientY);
+    e.preventDefault();
+  });
+  joy.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== pid) return;
+    update(e.clientX, e.clientY);
+  });
+  function endPointer(e) {
+    if (e.pointerId !== pid) return;
+    reset();
+  }
+  joy.addEventListener('pointerup', endPointer);
+  joy.addEventListener('pointercancel', endPointer);
+  joy.addEventListener('lostpointercapture', endPointer);
+}
+
+setupTouchControls();
 
 let state; // game state object
 
@@ -845,6 +973,10 @@ function yohakuMul() {
 // ============================================================
 
 function readMove() {
+  // Touch joystick takes precedence when active (already normalized).
+  if (touchInput.active) {
+    return { x: touchInput.x, y: touchInput.y };
+  }
   let dx = 0, dy = 0;
   if (keys.has('w') || keys.has('arrowup')) dy -= 1;
   if (keys.has('s') || keys.has('arrowdown')) dy += 1;

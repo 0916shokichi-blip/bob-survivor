@@ -69,6 +69,16 @@
 - 次は実プレイ → バランス微調整 → Vercel デプロイ可否
 - アプリツリー wiki に登録済み（commit `ce1087f`、初のクロスオーバー事例として L2 最大強度版に位置付け）
 
+## モバイル対応 + Web 公開準備（2026-05-08）
+
+- **タッチデバイス用の仮想ジョイスティック**を実装（`isTouchDevice()` 検出時のみ `body.touch-active` で表示、PC では非表示）。位置は左下、テキストなしのシルエット円のみ（anti_patterns カテゴリ 1「テキスト説明逃避」回避）
+- **自動戦闘維持**（攻撃ボタンなし、anti_patterns カテゴリ 8「便利化」非違反、カテゴリ 7「ジャンル平均値」非違反）
+- **stage アスペクト比 16:10 を保持**: `aspect-ratio: 16 / 10` + `width: min(960px, 100vw, calc(100vh * 1.6))` で縦持ち / 横持ち両対応
+- **モバイル HUD 詰め直し**: `@media (pointer: coarse)` で HUD font-size / build sidebar / modal padding / choice min-height 52px 確保
+- **`readMove()` を touchInput 優先 + keys fallback** に改修（PC キーボード操作は完全互換）
+- **Web 公開**: 単一 HTML 静的サイト、Vercel Import で即動く前提（vercel.json 不要、`/projects/exit-8-homage` と同設計）。GitHub repo + Vercel 連携は user 操作タスク
+- **L0 整合**: anti_patterns 10 カテゴリ全件チェック、視覚要素は worldLight() 依存ではなく入力 I/O 系のため L4 Playable Gate スキップ判断（境界グレーだが機能でなくアクセシビリティ拡張）。実機で違和感あれば `/playable-gate bob-survivor --target index.html` で再検査
+
 ## Phase B 完走（2026-04-30、アプリツリー wiki `log.md` 6 decide エントリ参照）
 
 5 観点診断 + 改造方針確定。**設計禁則 3「罪悪感強要」構造的回避済み**（philosophy-chat の hard constraint 4 件のような対応不要、テキストゼロ + メカニクスのみ + 不在で語る設計が初期から実装）。
