@@ -12,7 +12,7 @@ open index.html
 # or: make dev  # live-server + auto-reload (port 8765)
 ```
 
-Web 版: TBD（Vercel デプロイ予定）
+Web 版: https://bob-survivor.vercel.app
 
 ビルド不要、サーバー不要。単一 HTML + Canvas 2D で完結。
 

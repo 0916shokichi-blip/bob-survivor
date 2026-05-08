@@ -69,7 +69,13 @@
 - 次は実プレイ → バランス微調整 → Vercel デプロイ可否
 - アプリツリー wiki に登録済み（commit `ce1087f`、初のクロスオーバー事例として L2 最大強度版に位置付け）
 
-## モバイル対応 + Web 公開準備（2026-05-08）
+## モバイル対応 + Web 公開（2026-05-08 ローンチ）
+
+- **公開 URL**: https://bob-survivor.vercel.app（GitHub https://github.com/0916shokichi-blip/bob-survivor からの自動 deploy）
+- **GitHub repo**: PUBLIC、bobrain と同型運用（CLAUDE.md / .agents/director も露出）
+- **anonymity 復旧済**: 過去 5 commits の本名混入を `git filter-repo --mailmap` で全件「ぼぶ <noreply>」に統一、`.mailmap` 永続設置（memory `pii_anonymity_recovery` 事例 2 同型対応）
+
+
 
 - **タッチデバイス用の仮想ジョイスティック**を実装（`isTouchDevice()` 検出時のみ `body.touch-active` で表示、PC では非表示）。位置は左下、テキストなしのシルエット円のみ（anti_patterns カテゴリ 1「テキスト説明逃避」回避）
 - **自動戦闘維持**（攻撃ボタンなし、anti_patterns カテゴリ 8「便利化」非違反、カテゴリ 7「ジャンル平均値」非違反）
